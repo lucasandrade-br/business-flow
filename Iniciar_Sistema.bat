@@ -20,3 +20,6 @@ start http://localhost:5173
 
 echo Sistema iniciado.
 endlocal
+
+
+"Para poder começar a usar o software em produção, devemos alterar npm run dev para npm run build e ativar na porta 4173"

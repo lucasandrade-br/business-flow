@@ -10,11 +10,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Aliquota, Cliente, Fornecedor, GrupoCliente, PlanoConta, Produto, TemplateExportacao, TipoVenda, UnidadeMedida
+from .models import Aliquota, Cliente, FormaPagamento, Fornecedor, GrupoCliente, PlanoConta, Produto, TemplateExportacao, TipoVenda, UnidadeMedida
 from .serializers import (
 	AliquotaSerializer,
 	ClienteSerializer,
 	ExportacaoRequestSerializer,
+	FormaPagamentoSerializer,
 	GrupoClienteSerializer,
 	PlanoContaLoteSerializer,
 	PlanoContaSerializer,
@@ -251,6 +252,19 @@ class AliquotaDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
 	queryset = Aliquota.objects.all()
 	serializer_class = AliquotaSerializer
 	lookup_field = "id_aliquota"
+
+
+class FormaPagamentoListCreateAPIView(generics.ListCreateAPIView):
+	queryset = FormaPagamento.objects.all().order_by("id_forma")
+	serializer_class = FormaPagamentoSerializer
+	filter_backends = [filters.SearchFilter]
+	search_fields = ["descricao", "id_forma"]
+
+
+class FormaPagamentoDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+	queryset = FormaPagamento.objects.all()
+	serializer_class = FormaPagamentoSerializer
+	lookup_field = "id_forma"
 
 
 class TemplateExportacaoViewSet(viewsets.ModelViewSet):

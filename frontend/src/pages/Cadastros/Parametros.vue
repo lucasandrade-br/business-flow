@@ -170,6 +170,24 @@ const tabs = [
     defaults: { descricao: "" },
   },
   {
+    key: "formas_pagamento",
+    label: "Formas de Pagamento",
+    title: "Formas de Pagamento",
+    singular: "Forma de Pagamento",
+    endpoint: `${API_BASE_URL}/api/cadastros/formas-pagamento`,
+    rowKey: "id_forma",
+    lookup: "id_forma",
+    columns: [
+      { key: "id_forma", label: "Codigo" },
+      { key: "descricao", label: "Descricao" },
+    ],
+    fields: [
+      { name: "id_forma", label: "Codigo", type: "number", step: "1" },
+      { name: "descricao", label: "Descricao", type: "text" },
+    ],
+    defaults: { id_forma: "", descricao: "" },
+  },
+  {
     key: "templates_exportacao",
     label: "Padroes de Exportacao",
     title: "Padroes de Exportacao",
@@ -298,6 +316,16 @@ function normalizePayload(values) {
       sigla: String(values.sigla || "").trim(),
       descricao: String(values.descricao || "").trim(),
     };
+  }
+
+  if (current.value.key === "formas_pagamento") {
+    const payload = {
+      descricao: String(values.descricao || "").trim(),
+    };
+    if (!editing.value) {
+      payload.id_forma = values.id_forma === "" ? null : Number(values.id_forma);
+    }
+    return payload;
   }
 
   return {

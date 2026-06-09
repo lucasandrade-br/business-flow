@@ -3,8 +3,8 @@
     <article class="rounded-md border border-gray-200 bg-white p-4">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 class="text-sm font-semibold text-[#373435]">Hub de Validacao</h2>
-          <p class="mt-1 text-xs text-gray-500">Consolida pendencias de produtos, clientes e fornecedores.</p>
+          <h2 class="text-sm font-semibold text-[#373435]">Hub de Validação</h2>
+          <p class="mt-1 text-xs text-gray-500">Consolida pendências de produtos, clientes e fornecedores.</p>
         </div>
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div class="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5">
@@ -145,7 +145,7 @@ import ModalAprovacaoProduto from "@/pages/Validacao/ModalAprovacaoProduto.vue";
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 const cards = [
-  { key: "produtos", title: "Produtos", subtitle: "Catalogo de itens" },
+  { key: "produtos", title: "Produtos", subtitle: "Catálogo de itens" },
   { key: "clientes", title: "Clientes", subtitle: "Carteira comercial" },
   { key: "fornecedores", title: "Fornecedores", subtitle: "Base de compras" },
 ];
@@ -212,7 +212,7 @@ const tableTitle = computed(() => {
   return "Produtos Pendentes";
 });
 
-const tableSubtitle = computed(() => "Itens de staging aguardando aprovacao");
+const tableSubtitle = computed(() => "Itens de staging aguardando aprovação");
 
 function asMoney(value) {
   return Number(value || 0).toLocaleString("pt-BR", {

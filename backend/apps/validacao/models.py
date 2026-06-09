@@ -23,6 +23,17 @@ class BaseSTGModel(models.Model):
 
 
 class STG_Venda(BaseSTGModel):
+	TRATAMENTO_PENDENTE = "PENDENTE"
+	TRATAMENTO_AJUSTADO = "AJUSTADO"
+	TRATAMENTO_VALIDADO = "VALIDADO"
+	TRATAMENTO_NEGLIGENCIADO = "NEGLIGENCIADO"
+	STATUS_TRATAMENTO_CHOICES = (
+		(TRATAMENTO_PENDENTE, "Pendente"),
+		(TRATAMENTO_AJUSTADO, "Ajustado"),
+		(TRATAMENTO_VALIDADO, "Validado"),
+		(TRATAMENTO_NEGLIGENCIADO, "Negligenciado"),
+	)
+
 	TIPO_NFCE = "NFCE"
 	TIPO_DAV = "DAV"
 	TIPOS_DOCUMENTO = (
@@ -37,21 +48,25 @@ class STG_Venda(BaseSTGModel):
 	nome_computador = models.CharField(max_length=120, blank=True, default="")
 	data_venda = models.DateField(db_index=True)
 	hora_venda = models.TimeField(null=True, blank=True)
-	ref_hora = models.IntegerField(null=True, blank=True)
 	id_cliente_legado = models.BigIntegerField(null=True, blank=True)
 	nome_cliente_legado = models.CharField(max_length=160, blank=True, default="")
 	estorno = models.BooleanField(default=False)
-	id_tipo_pagamento_legado = models.BigIntegerField(null=True, blank=True)
 	nsu = models.CharField(max_length=80, blank=True, default="")
 	rede = models.CharField(max_length=80, blank=True, default="")
 	nfce_status = models.CharField(max_length=40, blank=True, default="")
 	nfce_numero = models.CharField(max_length=40, blank=True, default="")
-	valor_pagamento_legado = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 	id_usuario_legado = models.BigIntegerField(null=True, blank=True)
 	nome_usuario_legado = models.CharField(max_length=120, blank=True, default="")
-	tipo_pagamento_descricao_legado = models.CharField(max_length=120, blank=True, default="")
-	valor_venda = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 	valor_final = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+	status_tratamento = models.CharField(
+		max_length=20,
+		choices=STATUS_TRATAMENTO_CHOICES,
+		default=TRATAMENTO_PENDENTE,
+		db_index=True,
+	)
+	validacao_override = models.BooleanField(default=False)
+	snapshot_divergencia = models.JSONField(default=dict, blank=True)
+	tratamento_atualizado_em = models.DateTimeField(null=True, blank=True)
 
 	class Meta:
 		db_table = "stg_venda"
@@ -66,18 +81,20 @@ class STG_ItemVenda(BaseSTGModel):
 	)
 
 	id_stg_item_venda = models.BigAutoField(primary_key=True, db_column="id_stg_item_venda")
+	stg_venda = models.ForeignKey(
+		"validacao.STG_Venda",
+		on_delete=models.CASCADE,
+		related_name="itens",
+		null=True,
+		blank=True,
+	)
 	tipo_documento = models.CharField(max_length=10, choices=TIPOS_DOCUMENTO, db_index=True)
 	id_venda_legado = models.BigIntegerField(db_index=True)
 	status_venda = models.CharField(max_length=40, blank=True, default="")
-	dia_semana = models.CharField(max_length=10, blank=True, default="")
 	data_venda = models.DateField(db_index=True)
-	semana_label = models.CharField(max_length=20, blank=True, default="")
-	mes_label = models.CharField(max_length=30, blank=True, default="")
 	hora_venda = models.TimeField(null=True, blank=True)
-	ref_hora = models.IntegerField(null=True, blank=True)
 	id_cliente_legado = models.BigIntegerField(null=True, blank=True)
 	nome_cliente_legado = models.CharField(max_length=160, blank=True, default="")
-	item = models.IntegerField(null=True, blank=True)
 	id_produto_legado = models.BigIntegerField(db_index=True)
 	nome_produto_legado = models.CharField(max_length=200, blank=True, default="")
 	unidade_comercial_legado = models.CharField(max_length=20, blank=True, default="")
@@ -86,9 +103,6 @@ class STG_ItemVenda(BaseSTGModel):
 	valor_total_calculado = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 	cancelado = models.BooleanField(default=False)
 	ncm = models.CharField(max_length=20, blank=True, default="")
-	id_usuario_legado = models.BigIntegerField(null=True, blank=True)
-	valor_custo = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
-	valor_total_item = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 
 	class Meta:
 		db_table = "stg_item_venda"
@@ -103,6 +117,13 @@ class STG_PagamentoVenda(BaseSTGModel):
 	)
 
 	id_stg_pagamento_venda = models.BigAutoField(primary_key=True, db_column="id_stg_pagamento_venda")
+	stg_venda = models.ForeignKey(
+		"validacao.STG_Venda",
+		on_delete=models.CASCADE,
+		related_name="pagamentos",
+		null=True,
+		blank=True,
+	)
 	tipo_documento = models.CharField(max_length=10, choices=TIPOS_DOCUMENTO, db_index=True)
 	id_venda_legado = models.BigIntegerField(db_index=True)
 	id_tipo_pagamento_legado = models.BigIntegerField(null=True, blank=True)

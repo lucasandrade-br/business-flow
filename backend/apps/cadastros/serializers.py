@@ -8,6 +8,7 @@ from .models import (
     Aliquota,
     Cliente,
     CodSis,
+    FormaPagamento,
     Fornecedor,
     GrupoCliente,
     PlanoConta,
@@ -114,6 +115,12 @@ class AliquotaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Aliquota
         fields = ["id_aliquota", "valor_percentual", "descricao"]
+
+
+class FormaPagamentoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FormaPagamento
+        fields = ["id_forma", "descricao"]
 
 
 class FornecedorSerializer(serializers.ModelSerializer):

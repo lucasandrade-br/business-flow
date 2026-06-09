@@ -30,7 +30,7 @@ O sistema legado trata Vendas Fiscais (NFCe) e Orçamentos/Pedidos (DAV) em tabe
 ## 5. O Funil de Tripla Validação (Regras de Negócio)
 Para que uma venda cruze da Staging Area (STG) para o Oficial (SOT), ela deve passar pelos seguintes testes no Motor de Reconciliação:
 1. **Teste de Integridade Interna:** A soma dos valores de todos os `STG_ItemVenda` atrelados à venda bate exatamente com o `valor_total_documento` registrado na `STG_Venda`?
-2. **Teste de Reconciliação (Cross-Check Humano):** Os dados da Venda importada do Firebird batem com os dados inseridos em `STG_AuditoriaPlanilha` (planilha do funcionário) no tocante a Valor e Tipo de Pagamento?
+2. **Teste de Reconciliação (Cross-Check Humano):** Os dados da Venda importada do Firebird batem com os dados inseridos em `STG_AuditoriaPlanilha` (planilha do funcionário) no tocante a ID, Valor e Tipo de Pagamento?
 3. **Teste de Idempotência (Antiduplicidade):** O `id_legado` + `tipo_documento` já existe na tabela SOT `Venda`? Se sim, o registro deve ser ignorado na importação final.
 
 ## 6. O Fluxo de Trabalho (Roadmap de Implementação)

@@ -27,9 +27,13 @@
       <nav class="mt-5 space-y-5">
         <section>
           <p class="overflow-hidden px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-400 transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">OPERAÇÕES</p>
-          <RouterLink :to="'/validacao/produtos'" :class="linkClass('/validacao')" class="mt-2">
+          <RouterLink :to="'/validacao/produtos'" :class="linkClass('/validacao/produtos')" class="mt-2">
             <CheckSquare class="h-4 w-4 shrink-0" />
             <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Hub de Validação</span>
+          </RouterLink>
+          <RouterLink :to="'/validacao/reconciliacao'" :class="linkClass('/validacao/reconciliacao')" class="mt-1">
+            <ArrowRightLeft class="h-4 w-4 shrink-0" />
+            <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Integração de Vendas</span>
           </RouterLink>
         </section>
 
@@ -81,6 +85,7 @@
 
 <script setup>
 import {
+  ArrowRightLeft,
   Building2,
   CheckSquare,
   FolderTree,

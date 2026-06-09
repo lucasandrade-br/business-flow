@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import MainLayout from "@/layouts/MainLayout.vue";
 import ValidacaoPendentes from "@/pages/Validacao/Pendentes.vue";
+import DashboardReconciliacao from "@/pages/Validacao/DashboardReconciliacao.vue";
 import Clientes from "@/pages/Cadastros/Clientes.vue";
 import Fornecedores from "@/pages/Cadastros/Fornecedores.vue";
 import Parametros from "@/pages/Cadastros/Parametros.vue";
@@ -21,6 +22,11 @@ const routes = [
         path: "validacao/produtos",
         name: "validacao-produtos",
         component: ValidacaoPendentes,
+      },
+      {
+        path: "validacao/reconciliacao",
+        name: "validacao-reconciliacao",
+        component: DashboardReconciliacao,
       },
       {
         path: "cadastros/plano-contas",

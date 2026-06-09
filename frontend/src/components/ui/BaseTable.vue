@@ -27,6 +27,7 @@
             v-for="row in rows"
             :key="row[rowKey]"
             class="border-b border-gray-100 transition-colors hover:bg-gray-50"
+            :class="selectedRowKeySet.has(row[rowKey]) ? 'bg-[#f7fafc]' : ''"
           >
             <td v-for="column in columns" :key="column.key" class="px-4 py-3" :class="column.cellClass">
               <slot :name="`cell-${column.key}`" :row="row">
@@ -58,7 +59,7 @@
           :disabled="!next"
           @click="$emit('next')"
         >
-          Proxima
+          Próxima
         </button>
       </div>
     </footer>
@@ -66,7 +67,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from "vue";
+
+const props = defineProps({
   title: { type: String, default: "" },
   subtitle: { type: String, default: "" },
   columns: { type: Array, required: true },
@@ -78,7 +81,10 @@ defineProps({
   loading: { type: Boolean, default: false },
   error: { type: String, default: "" },
   emptyText: { type: String, default: "Nenhum registro." },
+  selectedRowKeys: { type: Array, default: () => [] },
 });
 
 defineEmits(["next", "previous"]);
+
+const selectedRowKeySet = computed(() => new Set(props.selectedRowKeys || []));
 </script>
