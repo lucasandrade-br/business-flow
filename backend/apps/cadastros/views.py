@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Count, Q
 from django.http import HttpResponse
 from rest_framework import status
@@ -10,12 +10,16 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Aliquota, Cliente, FormaPagamento, Fornecedor, GrupoCliente, PlanoConta, Produto, TemplateExportacao, TipoVenda, UnidadeMedida
+from .models import Aliquota, Cliente, FormaPagamento, FormaPagamentoMapeamento, FormaPagamentoOrigem, Fornecedor, GrupoCliente, PlanoConta, Produto, TemplateExportacao, TipoVenda, UnidadeMedida
+from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
 from .serializers import (
 	AliquotaSerializer,
 	ClienteSerializer,
 	ExportacaoRequestSerializer,
 	FormaPagamentoSerializer,
+	FormaPagamentoOrigemSerializer,
+	FormaPagamentoMapeamentoLoteSerializer,
+	FormaPagamentoMapeamentoSerializer,
 	GrupoClienteSerializer,
 	PlanoContaLoteSerializer,
 	PlanoContaSerializer,
@@ -267,6 +271,145 @@ class FormaPagamentoDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
 	lookup_field = "id_forma"
 
 
+class FormaPagamentoOrigemListCreateAPIView(generics.ListCreateAPIView):
+	queryset = FormaPagamentoOrigem.objects.all().order_by("tipo_documento", "id_forma_origem")
+	serializer_class = FormaPagamentoOrigemSerializer
+	filter_backends = [filters.SearchFilter]
+	search_fields = ["tipo_documento", "id_forma_origem", "descricao_origem"]
+
+
+class FormaPagamentoOrigemDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+	queryset = FormaPagamentoOrigem.objects.all()
+	serializer_class = FormaPagamentoOrigemSerializer
+	lookup_field = "id_origem"
+
+
+class FormaPagamentoMapeamentoOpcoesAPIView(APIView):
+	def get(self, request):
+		forma_id_raw = request.query_params.get("forma_id")
+		search = (request.query_params.get("search") or "").strip().upper()
+		somente_vinculados = str(request.query_params.get("somente_vinculados") or "").strip().lower() in {"1", "true", "on", "sim", "yes"}
+
+		forma_id = None
+		if forma_id_raw not in (None, ""):
+			try:
+				forma_id = int(forma_id_raw)
+			except (TypeError, ValueError):
+				return Response({"detail": "forma_id invalido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		mapeamentos_qs = FormaPagamentoMapeamento.objects.all()
+		mapeamento_por_chave = {
+			(f"{item.tipo_documento}:{int(item.id_forma_origem)}"): item
+			for item in mapeamentos_qs
+		}
+
+		origens = set()
+		for item in FormaPagamentoOrigem.objects.filter(ativo=True).values("tipo_documento", "id_forma_origem", "descricao_origem"):
+			origens.add(
+				(
+					str(item["tipo_documento"] or "").strip().upper(),
+					int(item["id_forma_origem"]),
+					str(item.get("descricao_origem") or "").strip(),
+				)
+			)
+
+		for item in mapeamentos_qs.values("tipo_documento", "id_forma_origem", "descricao_origem"):
+			origens.add(
+				(
+					str(item["tipo_documento"] or "").strip().upper(),
+					int(item["id_forma_origem"]),
+					str(item.get("descricao_origem") or "").strip(),
+				)
+			)
+
+		rows = []
+		for tipo_documento, id_origem, descricao_origem in sorted(origens, key=lambda x: (x[0], x[1])):
+			chave = f"{tipo_documento}:{id_origem}"
+			mapeamento = mapeamento_por_chave.get(chave)
+			is_vinculado = bool(mapeamento and (forma_id is not None and int(mapeamento.forma_pagamento_id) == int(forma_id)))
+
+			if somente_vinculados and not is_vinculado:
+				continue
+
+			search_blob = f"{tipo_documento} {id_origem} {descricao_origem}".upper()
+			if search and search not in search_blob:
+				continue
+
+			rows.append(
+				{
+					"tipo_documento": tipo_documento,
+					"id_forma_origem": id_origem,
+					"descricao_origem": descricao_origem,
+					"forma_pagamento_id": int(mapeamento.forma_pagamento_id) if mapeamento else None,
+					"vinculado": is_vinculado,
+				}
+			)
+
+		return Response({"rows": rows}, status=status.HTTP_200_OK)
+
+
+class FormaPagamentoMapeamentoLoteAPIView(APIView):
+	def post(self, request, id_forma: int):
+		forma = FormaPagamento.objects.filter(id_forma=id_forma).first()
+		if forma is None:
+			return Response({"detail": "Forma de pagamento nao encontrada."}, status=status.HTTP_404_NOT_FOUND)
+
+		serializer = FormaPagamentoMapeamentoLoteSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		adicionar = serializer.validated_data.get("adicionar", [])
+		remover = serializer.validated_data.get("remover", [])
+
+		adicionados = 0
+		removidos = 0
+		with transaction.atomic():
+			for item in adicionar:
+				origem_defaults = {
+					"descricao_origem": item.get("descricao_origem") or f"Forma {item['id_forma_origem']}",
+					"ativo": True,
+				}
+				FormaPagamentoOrigem.objects.update_or_create(
+					tipo_documento=item["tipo_documento"],
+					id_forma_origem=item["id_forma_origem"],
+					defaults=origem_defaults,
+				)
+
+				obj, created = FormaPagamentoMapeamento.objects.update_or_create(
+					tipo_documento=item["tipo_documento"],
+					id_forma_origem=item["id_forma_origem"],
+					defaults={
+						"forma_pagamento": forma,
+						"descricao_origem": item.get("descricao_origem") or "",
+						"ativo": True,
+					},
+				)
+				if created or obj.forma_pagamento_id == forma.id_forma:
+					adicionados += 1
+
+			for item in remover:
+				deleted, _ = FormaPagamentoMapeamento.objects.filter(
+					forma_pagamento=forma,
+					tipo_documento=item["tipo_documento"],
+					id_forma_origem=item["id_forma_origem"],
+				).delete()
+				if deleted:
+					removidos += 1
+
+		return Response(
+			{
+				"detail": "Mapeamentos aplicados com sucesso.",
+				"id_forma": int(forma.id_forma),
+				"adicionados": adicionados,
+				"removidos": removidos,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class FormaPagamentoMapeamentoListAPIView(generics.ListAPIView):
+	queryset = FormaPagamentoMapeamento.objects.select_related("forma_pagamento").order_by("tipo_documento", "id_forma_origem")
+	serializer_class = FormaPagamentoMapeamentoSerializer
+
+
 class TemplateExportacaoViewSet(viewsets.ModelViewSet):
 	queryset = TemplateExportacao.objects.all().order_by("nome")
 	serializer_class = TemplateExportacaoSerializer
@@ -280,21 +423,121 @@ class TemplateExportacaoViewSet(viewsets.ModelViewSet):
 
 
 class ExportacaoUniversalAPIView(APIView):
+	@staticmethod
+	def _to_int_or_none(value):
+		if value in (None, ""):
+			return None
+		try:
+			return int(value)
+		except (TypeError, ValueError):
+			return None
+
+	@staticmethod
+	def _apply_date_range_filter(queryset, *, field_name: str, filtros: dict):
+		data_inicial = str(filtros.get("data_inicial") or "").strip()
+		data_final = str(filtros.get("data_final") or "").strip()
+		if data_inicial:
+			queryset = queryset.filter(**{f"{field_name}__gte": data_inicial})
+		if data_final:
+			queryset = queryset.filter(**{f"{field_name}__lte": data_final})
+		return queryset
+
+	def _apply_venda_filters(self, queryset, filtros: dict):
+		queryset = self._apply_date_range_filter(queryset, field_name="data_venda", filtros=filtros)
+		tipo_documento = str(filtros.get("tipo_documento") or "").strip().upper()
+		if tipo_documento:
+			queryset = queryset.filter(tipo_documento=tipo_documento)
+
+		cliente_id = self._to_int_or_none(filtros.get("cliente_id"))
+		if cliente_id is not None:
+			queryset = queryset.filter(cliente_id=cliente_id)
+
+		produto_id = self._to_int_or_none(filtros.get("produto_id"))
+		if produto_id is not None:
+			queryset = queryset.filter(itens__produto_id=produto_id)
+
+		forma_pagamento_id = self._to_int_or_none(filtros.get("forma_pagamento_id"))
+		if forma_pagamento_id is not None:
+			queryset = queryset.filter(pagamentos__forma_pagamento_id=forma_pagamento_id)
+
+		if produto_id is not None or forma_pagamento_id is not None:
+			queryset = queryset.distinct()
+		return queryset
+
+	def _apply_item_filters(self, queryset, filtros: dict):
+		queryset = self._apply_date_range_filter(queryset, field_name="venda__data_venda", filtros=filtros)
+		tipo_documento = str(filtros.get("tipo_documento") or "").strip().upper()
+		if tipo_documento:
+			queryset = queryset.filter(venda__tipo_documento=tipo_documento)
+
+		cliente_id = self._to_int_or_none(filtros.get("cliente_id"))
+		if cliente_id is not None:
+			queryset = queryset.filter(venda__cliente_id=cliente_id)
+
+		produto_id = self._to_int_or_none(filtros.get("produto_id"))
+		if produto_id is not None:
+			queryset = queryset.filter(produto_id=produto_id)
+
+		forma_pagamento_id = self._to_int_or_none(filtros.get("forma_pagamento_id"))
+		if forma_pagamento_id is not None:
+			queryset = queryset.filter(venda__pagamentos__forma_pagamento_id=forma_pagamento_id).distinct()
+		return queryset
+
+	def _apply_pagamento_filters(self, queryset, filtros: dict):
+		queryset = self._apply_date_range_filter(queryset, field_name="venda__data_venda", filtros=filtros)
+		tipo_documento = str(filtros.get("tipo_documento") or "").strip().upper()
+		if tipo_documento:
+			queryset = queryset.filter(venda__tipo_documento=tipo_documento)
+
+		cliente_id = self._to_int_or_none(filtros.get("cliente_id"))
+		if cliente_id is not None:
+			queryset = queryset.filter(venda__cliente_id=cliente_id)
+
+		forma_pagamento_id = self._to_int_or_none(filtros.get("forma_pagamento_id"))
+		if forma_pagamento_id is not None:
+			queryset = queryset.filter(forma_pagamento_id=forma_pagamento_id)
+
+		produto_id = self._to_int_or_none(filtros.get("produto_id"))
+		if produto_id is not None:
+			queryset = queryset.filter(venda__itens__produto_id=produto_id).distinct()
+		return queryset
+
 	TABLE_CONFIG = {
 		"produtos": {
 			"queryset": Produto.objects.select_related("id_und_medida").prefetch_related("categorias").all(),
 			"search_fields": ["produto"],
 			"allowed_columns": {field.name for field in Produto._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: queryset,
 		},
 		"clientes": {
 			"queryset": Cliente.objects.select_related("id_grupo", "id_tipo_venda").all(),
 			"search_fields": ["nome_cliente", "raz_social"],
 			"allowed_columns": {field.name for field in Cliente._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: queryset,
 		},
 		"fornecedores": {
 			"queryset": Fornecedor.objects.select_related("id_codsis").all(),
 			"search_fields": ["nome_fornecedor", "raz_social", "codigo"],
 			"allowed_columns": {field.name for field in Fornecedor._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: queryset,
+		},
+		"vendas": {
+			"queryset": Venda.objects.select_related("cliente", "usuario").all(),
+			"search_fields": ["id_legado", "tipo_documento", "status", "cliente__nome_cliente", "usuario__nome"],
+			"allowed_columns": {field.name for field in Venda._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: self._apply_venda_filters(queryset, filtros),
+		},
+		"itens_venda": {
+			"queryset": ItemVenda.objects.select_related("venda", "produto", "unidade_medida").all(),
+			"search_fields": ["venda__id_legado", "venda__tipo_documento", "produto__produto", "venda__cliente__nome_cliente"],
+			"allowed_columns": {field.name for field in ItemVenda._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: self._apply_item_filters(queryset, filtros),
+		},
+		"pagamentos_venda": {
+			"queryset": PagamentoVenda.objects.select_related("venda", "forma_pagamento").all(),
+			"search_fields": ["venda__id_legado", "venda__tipo_documento", "forma_pagamento__descricao", "venda__cliente__nome_cliente"],
+			"allowed_columns": {field.name for field in PagamentoVenda._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: self._apply_pagamento_filters(queryset, filtros),
 		},
 	}
 
@@ -309,6 +552,7 @@ class ExportacaoUniversalAPIView(APIView):
 		query_sql = validated.get("query_sql") or ""
 		formato = validated["formato"]
 		search = (validated.get("search") or request.query_params.get("search") or "").strip()
+		filtros = validated.get("filtros") or {}
 
 		config = self.TABLE_CONFIG[tabela]
 
@@ -319,6 +563,7 @@ class ExportacaoUniversalAPIView(APIView):
 				return Response({"detail": f"Colunas invalidas: {', '.join(invalid_columns)}"}, status=400)
 
 			queryset = config["queryset"]
+			queryset = config["filter_fn"](self, queryset, filtros)
 			if search:
 				query = Q()
 				for field in config["search_fields"]:

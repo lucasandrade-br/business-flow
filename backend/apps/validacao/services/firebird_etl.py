@@ -192,6 +192,7 @@ def _extract_documento_3_blocos(
 
     sql_pagamentos = f"""
         SELECT
+            P.ESTORNO,
             P.ID_TIPO_PAGAMENTO,
             COALESCE(FP.DESCRICAO, '') AS TIPO_PAGAMENTO_DESCRICAO,
             P.VALOR,
@@ -206,7 +207,7 @@ def _extract_documento_3_blocos(
 
     stg_pagamentos = []
     for row in pagamentos_rows:
-        id_venda_legado = int(row[3])
+        id_venda_legado = int(row[4])
         stg_venda_id = mapa_vendas_id.get(id_venda_legado)
         if stg_venda_id is None:
             continue
@@ -216,9 +217,10 @@ def _extract_documento_3_blocos(
                 stg_venda_id=stg_venda_id,
                 tipo_documento=tipo_documento,
                 id_venda_legado=id_venda_legado,
-                id_tipo_pagamento_legado=row[0],
-                tipo_pagamento_descricao_legado=_normalize_text(row[1]),
-                valor_pago=_to_decimal(row[2]) or Decimal("0"),
+                estorno=_to_bool_flag(row[0]),
+                id_tipo_pagamento_legado=row[1],
+                tipo_pagamento_descricao_legado=_normalize_text(row[2]),
+                valor_pago=_to_decimal(row[3]) or Decimal("0"),
             )
         )
 

@@ -14,6 +14,7 @@ class Venda(models.Model):
 	tipo_documento = models.CharField(max_length=10, choices=TIPOS_DOCUMENTO, db_index=True)
 	data_venda = models.DateField(db_index=True)
 	hora_venda = models.TimeField(null=True, blank=True)
+	status = models.CharField(max_length=40, blank=True, default="")
 	cliente = models.ForeignKey(
 		"cadastros.Cliente",
 		null=True,
@@ -29,6 +30,7 @@ class Venda(models.Model):
 		related_name="vendas",
 	)
 	valor_total_documento = models.DecimalField(max_digits=18, decimal_places=6)
+	momento_consolidacao = models.DateTimeField(null=True, blank=True)
 
 	class Meta:
 		db_table = "venda"
@@ -52,6 +54,14 @@ class ItemVenda(models.Model):
 		"cadastros.Produto",
 		db_column="id_produto",
 		on_delete=models.PROTECT,
+		related_name="itens_venda",
+	)
+	unidade_medida = models.ForeignKey(
+		"cadastros.UnidadeMedida",
+		null=True,
+		blank=True,
+		db_column="id_und_medida",
+		on_delete=models.SET_NULL,
 		related_name="itens_venda",
 	)
 	quantidade = models.DecimalField(max_digits=18, decimal_places=6)
@@ -78,6 +88,7 @@ class PagamentoVenda(models.Model):
 		related_name="pagamentos_venda",
 	)
 	valor_pago = models.DecimalField(max_digits=18, decimal_places=6)
+	estorno = models.BooleanField(default=False)
 
 	class Meta:
 		db_table = "pagamento_venda"

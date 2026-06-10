@@ -63,7 +63,7 @@
                 <td class="px-2 py-1">
                   <select
                     class="w-full rounded-md border border-gray-200 px-2 py-1 text-xs"
-                    :value="toStringOrEmpty(pg.id_tipo_pagamento_legado)"
+                    :value="toStringOrEmpty(pg.id_forma_canonica ?? pg.id_tipo_pagamento_legado)"
                     @change="handlePagamentoFormaChange(pg, $event.target.value)"
                   >
                     <option value="">Selecione uma forma</option>
@@ -174,13 +174,12 @@ function toStringOrEmpty(value) {
 function handlePagamentoFormaChange(pg, rawValue) {
   const formId = Number(rawValue);
   if (!Number.isInteger(formId) || formId <= 0) {
-    pg.id_tipo_pagamento_legado = null;
-    pg.tipo_pagamento_descricao_legado = "";
+    pg.id_forma_canonica = null;
     return;
   }
 
   const forma = (props.formasPagamento || []).find((item) => Number(item.id_forma) === formId);
-  pg.id_tipo_pagamento_legado = formId;
+  pg.id_forma_canonica = formId;
   pg.tipo_pagamento_descricao_legado = forma?.descricao || "";
 }
 

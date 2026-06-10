@@ -69,6 +69,8 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
                 if produto_sot is not None:
                     dados_sot = {
                         "nome": produto_sot.produto,
+                        "gtin": produto_sot.gtin,
+                        "barras": produto_sot.barras,
                         "custo": produto_sot.custo,
                         "valor_venda": produto_sot.venda,
                         "status": produto_sot.status,
@@ -359,7 +361,7 @@ def aprovar_fornecedor_novo(dados_validados: dict[str, Any]) -> None:
                         id_fornecedor=dados_validados["id_fornecedor"],
                         nome_fornecedor=dados_validados["nome_fornecedor"],
                         raz_social=dados_validados.get("raz_social", ""),
-                        dt_cadastro=dados_validados.get("dt_cadastro") or date.today(),
+                        #dt_cadastro=dados_validados.get("dt_cadastro") or date.today(),
                     ),
                 },
             )

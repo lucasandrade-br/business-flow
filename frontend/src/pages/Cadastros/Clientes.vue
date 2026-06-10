@@ -45,6 +45,15 @@
         </div>
       </template>
 
+      <template #cell-cliente_padrao="{ row }">
+        <span
+          class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold"
+          :class="row.cliente_padrao ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'"
+        >
+          {{ row.cliente_padrao ? 'Sim' : 'Nao' }}
+        </span>
+      </template>
+
       <template #actions="{ row }">
         <div class="inline-flex items-center gap-2">
           <button type="button" class="rounded-md border border-gray-200 p-1.5 text-gray-600 hover:bg-gray-50" @click="openEdit(row)">
@@ -93,6 +102,7 @@ const columns = [
   { key: "id_cliente", label: "ID" },
   { key: "nome_cliente", label: "Cliente" },
   { key: "raz_social", label: "Razao Social" },
+  { key: "cliente_padrao", label: "Padrao" },
   { key: "prazo_cob", label: "Prazo Cob" },
 ];
 
@@ -119,6 +129,7 @@ const exportColumns = [
   { key: "nome_cliente", label: "Nome" },
   { key: "raz_social", label: "Razao Social" },
   { key: "prazo_cob", label: "Prazo Cob" },
+  { key: "cliente_padrao", label: "Cliente Padrao" },
   { key: "id_grupo", label: "Grupo" },
   { key: "id_tipo_venda", label: "Tipo Venda" },
   { key: "hash_md5", label: "Hash" },
@@ -134,6 +145,15 @@ const formFields = computed(() => [
   { name: "nome_cliente", label: "Nome", type: "text", required: true },
   { name: "raz_social", label: "Razao Social", type: "text" },
   { name: "prazo_cob", label: "Prazo Cob", type: "number", required: true },
+  {
+    name: "cliente_padrao",
+    label: "Cliente Padrao",
+    type: "select",
+    options: [
+      { value: false, label: "Nao" },
+      { value: true, label: "Sim" },
+    ],
+  },
   {
     name: "id_grupo",
     label: "Grupo",
@@ -159,6 +179,7 @@ const initialValues = computed(() => {
       nome_cliente: "",
       raz_social: "",
       prazo_cob: 0,
+      cliente_padrao: false,
       id_grupo: "",
       id_tipo_venda: "",
     };
@@ -168,6 +189,7 @@ const initialValues = computed(() => {
     nome_cliente: editing.value.nome_cliente || "",
     raz_social: editing.value.raz_social || "",
     prazo_cob: editing.value.prazo_cob || 0,
+    cliente_padrao: Boolean(editing.value.cliente_padrao),
     id_grupo: editing.value.id_grupo || "",
     id_tipo_venda: editing.value.id_tipo_venda || "",
   };
@@ -271,6 +293,7 @@ async function save(values) {
     nome_cliente: String(values.nome_cliente || "").trim(),
     raz_social: String(values.raz_social || "").trim(),
     prazo_cob: Number(values.prazo_cob || 0),
+    cliente_padrao: values.cliente_padrao === true || String(values.cliente_padrao) === "true",
     id_grupo: toNumberOrNull(values.id_grupo),
     id_tipo_venda: toNumberOrNull(values.id_tipo_venda),
   };

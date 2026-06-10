@@ -223,6 +223,60 @@ class FormaPagamento(models.Model):
 		return self.descricao
 
 
+class FormaPagamentoOrigem(models.Model):
+	TIPO_NFCE = "NFCE"
+	TIPO_DAV = "DAV"
+	TIPO_NFE = "NFE"
+
+	id_origem = models.BigAutoField(primary_key=True, db_column="id_origem")
+	tipo_documento = models.CharField(max_length=10, db_index=True)
+	id_forma_origem = models.BigIntegerField(db_index=True)
+	descricao_origem = models.CharField(max_length=120)
+	ativo = models.BooleanField(default=True)
+
+	class Meta:
+		db_table = "forma_pagamento_origem"
+		constraints = [
+			models.UniqueConstraint(
+				fields=["tipo_documento", "id_forma_origem"],
+				name="uniq_forma_pagamento_origem_tipo_id",
+			),
+		]
+
+	def __str__(self) -> str:
+		return f"{self.tipo_documento}:{self.id_forma_origem} - {self.descricao_origem}"
+
+
+class FormaPagamentoMapeamento(models.Model):
+	TIPO_NFCE = "NFCE"
+	TIPO_DAV = "DAV"
+	TIPO_NFE = "NFE"
+
+	id_mapeamento = models.BigAutoField(primary_key=True, db_column="id_mapeamento")
+	forma_pagamento = models.ForeignKey(
+		FormaPagamento,
+		on_delete=models.CASCADE,
+		related_name="mapeamentos_origem",
+		db_column="id_forma",
+	)
+	tipo_documento = models.CharField(max_length=10, db_index=True)
+	id_forma_origem = models.BigIntegerField(db_index=True)
+	descricao_origem = models.CharField(max_length=120, blank=True, default="")
+	ativo = models.BooleanField(default=True)
+
+	class Meta:
+		db_table = "forma_pagamento_mapeamento"
+		constraints = [
+			models.UniqueConstraint(
+				fields=["tipo_documento", "id_forma_origem"],
+				name="uniq_forma_pagamento_mapeamento_origem",
+			),
+		]
+
+	def __str__(self) -> str:
+		return f"{self.tipo_documento}:{self.id_forma_origem} -> {self.forma_pagamento_id}"
+
+
 class Fornecedor(models.Model):
 	id_fornecedor = models.BigIntegerField(primary_key=True)
 	nome_fornecedor = models.CharField(max_length=120)
@@ -261,6 +315,7 @@ class Cliente(models.Model):
 	raz_social = models.CharField(max_length=160, blank=True, default="")
 	hash_md5 = models.CharField(max_length=32, blank=True, null=True)
 	prazo_cob = models.IntegerField(default=0)
+	cliente_padrao = models.BooleanField(default=False)
 	id_grupo = models.ForeignKey(
 		GrupoCliente,
 		null=True,
@@ -289,7 +344,11 @@ class Cliente(models.Model):
 			nome_cliente=self.nome_cliente,
 			raz_social=self.raz_social,
 		)
-		return super().save(*args, **kwargs)
+
+		with transaction.atomic():
+			if self.cliente_padrao:
+				Cliente.objects.filter(cliente_padrao=True).exclude(id_cliente=self.id_cliente).update(cliente_padrao=False)
+			return super().save(*args, **kwargs)
 
 
 class TemplateExportacao(models.Model):

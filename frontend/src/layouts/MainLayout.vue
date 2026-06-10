@@ -60,6 +60,24 @@
         </section>
 
         <section>
+          <p class="overflow-hidden px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-400 transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">VENDAS</p>
+          <div class="mt-2 space-y-1">
+            <RouterLink :to="'/vendas/vendas'" :class="linkClass('/vendas/vendas')">
+              <Receipt class="h-4 w-4 shrink-0" />
+              <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Vendas</span>
+            </RouterLink>
+            <RouterLink :to="'/vendas/itens'" :class="linkClass('/vendas/itens')">
+              <ShoppingCart class="h-4 w-4 shrink-0" />
+              <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Itens</span>
+            </RouterLink>
+            <RouterLink :to="'/vendas/pagamentos'" :class="linkClass('/vendas/pagamentos')">
+              <CreditCard class="h-4 w-4 shrink-0" />
+              <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Pagamentos</span>
+            </RouterLink>
+          </div>
+        </section>
+
+        <section>
           <p class="overflow-hidden px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-400 transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">SISTEMA</p>
           <div class="mt-2 space-y-1">
             <RouterLink :to="'/cadastros/parametros'" :class="linkClass('/cadastros/parametros')">
@@ -88,11 +106,14 @@ import {
   ArrowRightLeft,
   Building2,
   CheckSquare,
+  CreditCard,
   FolderTree,
   Package,
   PanelRightClose,
   PanelRightOpen,
+  Receipt,
   SlidersHorizontal,
+  ShoppingCart,
   Settings,
   Users,
 } from "lucide-vue-next";

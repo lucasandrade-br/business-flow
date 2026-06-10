@@ -2,18 +2,25 @@
   <BaseModal
     v-model="open"
     :title="`Produto ${produto?.id_produto ?? ''}`"
-    description="Preencha os campos obrigatorios e vincule categorias por raiz."
+    description="Preencha os campos obrigatorios e, se desejar, vincule categorias por raiz."
   >
     <div v-if="!produto" class="text-sm text-gray-500">Nenhum produto selecionado.</div>
 
     <div v-else class="space-y-4">
       <section class="grid gap-3 rounded-md border border-gray-200 p-3 lg:grid-cols-2">
-        <div>
-          <p class="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-            Produto
-            <span class="text-red-500">*</span>
+        <div class="space-y-1">
+          <BaseInput
+            v-model="form.nome"
+            label="Produto"
+            readonly
+            :input-class="isCampoDivergente('nome', form.nome, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p
+            v-if="isCampoDivergente('nome', form.nome, normalizeString)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotTexto('nome') }}
           </p>
-          <p class="mt-1 text-sm text-[#373435]">{{ produto.nome }}</p>
         </div>
         <div>
           <p class="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -22,23 +29,37 @@
           </p>
           <p class="mt-1 text-sm text-[#373435]">{{ produto.id_produto }}</p>
         </div>
+        <div class="space-y-1">
+          <BaseInput
+            v-model="form.gtin"
+            label="GTIN"
+            readonly
+            :input-class="isCampoDivergente('gtin', form.gtin, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p
+            v-if="isCampoDivergente('gtin', form.gtin, normalizeString)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotTexto('gtin') }}
+          </p>
+        </div>
+        <div class="space-y-1">
+          <BaseInput
+            v-model="form.barras"
+            label="Codigo de Barras"
+            readonly
+            :input-class="isCampoDivergente('barras', form.barras, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p
+            v-if="isCampoDivergente('barras', form.barras, normalizeString)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotTexto('barras') }}
+          </p>
+        </div>
       </section>
 
       <section class="grid gap-3 lg:grid-cols-3">
-        <BaseInput
-          v-model="form.nome"
-          label="Nome"
-          required
-          readonly
-          :input-class="isCampoDivergente('nome', form.nome, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
-        />
-        <p
-          v-if="isCampoDivergente('nome', form.nome, normalizeString)"
-          class="-mt-2 text-[11px] text-yellow-800"
-        >
-          Atualmente: {{ valorSotTexto('nome') }}
-        </p>
-
         <label class="space-y-1 text-xs">
           <span class="inline-flex items-center gap-1 font-medium text-gray-600">
             Status
@@ -54,7 +75,7 @@
             type="button"
             :class="[
               'inline-flex w-full items-center justify-between rounded-md border px-3 py-2',
-              isCampoDivergente('status', statusComoTexto(form.status), normalizeStatus)
+              isCampoDivergente('status', statusComoTexto(form.status), normalizeStatusLabel)
                 ? 'bg-yellow-50 border-yellow-300 text-yellow-900'
                 : 'border-gray-200',
             ]"
@@ -68,54 +89,73 @@
             </span>
           </button>
           <p
-            v-if="isCampoDivergente('status', statusComoTexto(form.status), normalizeStatus)"
+            v-if="isCampoDivergente('status', statusComoTexto(form.status), normalizeStatusLabel)"
             class="text-[11px] text-yellow-800"
           >
-            Atualmente: {{ valorSotTexto('status', normalizeStatus) }}
+            Atualmente: {{ valorSotTexto('status', normalizeStatusLabel) }}
           </p>
         </label>
-        <label class="space-y-1 text-xs">
-          <span class="inline-flex items-center gap-1 font-medium text-gray-600">
-            Und. Medida
-            <span class="text-red-500">*</span>
-            <span class="group relative inline-flex items-center">
-              <HelpCircle class="h-4 w-4 text-gray-400" />
-              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
-                Unidade de medida obrigatoria para aprovacao
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="inline-flex items-center gap-1 font-medium text-gray-600">
+              Und. Medida
+              <span class="text-red-500">*</span>
+              <span class="group relative inline-flex items-center">
+                <HelpCircle class="h-4 w-4 text-gray-400" />
+                <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
+                  Unidade de medida obrigatoria para aprovacao
+                </span>
               </span>
             </span>
-          </span>
-          <select v-model="form.id_und_medida" required class="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
-            <option value="">Selecione</option>
-            <option v-for="option in unidadesOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <CurrencyInput
-          v-model="form.custo"
-          label="Custo"
-          required
-          help-text="Valor de custo obrigatorio para aprovacao"
-          :input-class="isCampoDivergente('custo', form.custo, normalizeNumber) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
-        />
-        <p
-          v-if="isCampoDivergente('custo', form.custo, normalizeNumber)"
-          class="-mt-2 text-[11px] text-yellow-800"
-        >
-          Atualmente: {{ valorSotMonetario('custo') }}
-        </p>
-        <CurrencyInput
-          v-model="form.valor_venda"
-          label="Venda"
-          required
-          help-text="Valor de venda obrigatorio para aprovacao"
-          :input-class="isCampoDivergente('valor_venda', form.valor_venda, normalizeNumber) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
-        />
-        <p
-          v-if="isCampoDivergente('valor_venda', form.valor_venda, normalizeNumber)"
-          class="-mt-2 text-[11px] text-yellow-800"
-        >
-          Atualmente: {{ valorSotMonetario('valor_venda') }}
-        </p>
+            <select
+              v-model="form.id_und_medida"
+              required
+              :class="[
+                'w-full rounded-md border bg-white px-3 py-2 text-sm',
+                isCampoDivergente('id_und_medida', form.id_und_medida, normalizeNumber) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+            >
+              <option value="">Selecione</option>
+              <option v-for="option in unidadesOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <p
+            v-if="isCampoDivergente('id_und_medida', form.id_und_medida, normalizeNumber)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotTexto('id_und_medida') }}
+          </p>
+        </div>
+        <div class="space-y-1">
+          <CurrencyInput
+            v-model="form.custo"
+            label="Custo"
+            required
+            help-text="Valor de custo obrigatorio para aprovacao"
+            :input-class="isCampoDivergente('custo', form.custo, normalizeNumber) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p
+            v-if="isCampoDivergente('custo', form.custo, normalizeNumber)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotMonetario('custo') }}
+          </p>
+        </div>
+        <div class="space-y-1">
+          <CurrencyInput
+            v-model="form.valor_venda"
+            label="Venda"
+            required
+            help-text="Valor de venda obrigatorio para aprovacao"
+            :input-class="isCampoDivergente('valor_venda', form.valor_venda, normalizeNumber) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p
+            v-if="isCampoDivergente('valor_venda', form.valor_venda, normalizeNumber)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotMonetario('valor_venda') }}
+          </p>
+        </div>
         <label class="space-y-1 text-xs">
           <span class="font-medium text-gray-600">Markup</span>
           <PercentInput v-model="form.markup" />
@@ -160,7 +200,7 @@
       </section>
 
       <section class="rounded-md border border-gray-200 p-3">
-        <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Categorias por raiz</h4>
+        <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Categorias por raiz (opcional)</h4>
         <p v-if="treeLoading" class="mt-2 text-xs text-gray-500">Carregando arvore...</p>
         <p v-else-if="treeError" class="mt-2 text-xs text-red-600">{{ treeError }}</p>
         <div v-else class="mt-3 grid gap-3 lg:grid-cols-2">
@@ -229,6 +269,8 @@ const aliquotasOptions = ref([]);
 
 const form = reactive({
   nome: "",
+  gtin: "",
+  barras: "",
   status: true,
   id_und_medida: "",
   custo: 0,
@@ -297,6 +339,8 @@ function flattenCategorias(root) {
 
 function resetForm() {
   form.nome = "";
+  form.gtin = "";
+  form.barras = "";
   form.status = true;
   form.id_und_medida = "";
   form.custo = 0;
@@ -322,6 +366,13 @@ function normalizeString(value) {
 
 function normalizeStatus(value) {
   return normalizeString(value).toUpperCase();
+}
+
+function normalizeStatusLabel(value) {
+  const status = normalizeStatus(value);
+  if (status === "1" || status === "A" || status === "ATIVO") return "ATIVO";
+  if (status === "0" || status === "I" || status === "INATIVO") return "INATIVO";
+  return status;
 }
 
 function normalizeNumber(value) {
@@ -389,8 +440,10 @@ function hydrateFormFromProduto() {
   if (props.produto.tipo_pendencia === "ATUALIZACAO" && props.produto.dados_sot) {
     const dados = props.produto.dados_sot;
     form.nome = props.produto.nome || "";
+    form.gtin = props.produto.gtin || "";
+    form.barras = props.produto.barras || "";
     form.id_und_medida = dados.id_und_medida || sugeridaId;
-    form.status = String(props.produto.status || "").toUpperCase() !== "INATIVO";
+    form.status = normalizeStatusLabel(props.produto.status) !== "INATIVO";
     form.custo = stagedCusto;
     form.valor_venda = stagedVenda;
     form.markup = dados.markup ?? 0;
@@ -408,8 +461,10 @@ function hydrateFormFromProduto() {
 
   resetForm();
   form.nome = props.produto.nome || "";
+  form.gtin = props.produto.gtin || "";
+  form.barras = props.produto.barras || "";
   form.id_und_medida = sugeridaId;
-  form.status = String(props.produto.status || "").toUpperCase() !== "INATIVO";
+  form.status = normalizeStatusLabel(props.produto.status) !== "INATIVO";
   form.custo = stagedCusto;
   form.valor_venda = stagedVenda;
 }
@@ -483,8 +538,8 @@ function buildPayload() {
   return {
     id_produto: props.produto.id_produto,
     nome: String(form.nome || "").trim(),
-    gtin: String(props.produto.gtin || ""),
-    barras: String(props.produto.barras || ""),
+    gtin: String(form.gtin || "").trim(),
+    barras: String(form.barras || "").trim(),
     status: form.status ? "ATIVO" : "INATIVO",
     ult_mov: props.produto.dt_ultimo_movimento || null,
     custo: numberOrZero(form.custo),
@@ -509,11 +564,6 @@ async function save() {
 
   error.value = "";
   const payload = buildPayload();
-
-  if (!payload.categorias_ids.length) {
-    error.value = "Selecione ao menos uma categoria filha.";
-    return;
-  }
 
   saving.value = true;
 

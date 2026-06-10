@@ -8,7 +8,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.integracao.models import StgClientesNovos, StgFornecedoresNovos, StgProdutosNovos
 from .serializers import (
     AprovarClienteSerializer,
     AprovarFornecedorSerializer,
@@ -18,12 +17,14 @@ from .serializers import (
     ProdutoPendenteSerializer,
 )
 from .services import (
+    aplicar_tratamento_pendencias_lote,
     aplicar_tratamento_divergencia,
     aplicar_tratamento_divergencias_lote,
     aprovar_cliente_novo,
     aprovar_fornecedor_novo,
     aprovar_produto_novo,
     consolidar_stg_para_sot,
+    contar_pendencias_validacao,
     get_importacao_job,
     listar_divergencias_reconciliacao,
     listar_formas_pagamento,
@@ -38,13 +39,7 @@ from .services import (
 
 class ResumoPendenciasAPIView(APIView):
     def get(self, request: Request) -> Response:
-        return Response(
-            {
-                "produtos": StgProdutosNovos.objects.count(),
-                "clientes": StgClientesNovos.objects.count(),
-                "fornecedores": StgFornecedoresNovos.objects.count(),
-            }
-        )
+        return Response(contar_pendencias_validacao())
 
 
 class ProdutosPendentesAPIView(generics.ListAPIView):
@@ -114,6 +109,39 @@ class AprovarFornecedorAPIView(APIView):
 
         aprovar_fornecedor_novo(serializer.validated_data)
         return Response({"detail": "Fornecedor aprovado com sucesso."}, status=status.HTTP_201_CREATED)
+
+
+class PendenciasTratarLoteAPIView(APIView):
+    def post(self, request: Request) -> Response:
+        entidade = str(request.data.get("entidade") or "").strip().lower()
+        acao = str(request.data.get("acao") or "").strip().lower()
+        ids_raw = request.data.get("ids") or []
+
+        if not entidade or not acao or not isinstance(ids_raw, list) or not ids_raw:
+            return Response(
+                {"detail": "Campos obrigatorios: entidade, acao e ids (lista)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ids = [int(item) for item in ids_raw]
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "ids deve conter apenas valores numericos."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            resultado = aplicar_tratamento_pendencias_lote(entidade=entidade, acao=acao, ids=ids)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(
+                {"detail": "Falha ao aplicar tratamento em lote para pendencias."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(resultado, status=status.HTTP_200_OK)
 
 
 class SincronizarVendasFirebirdAPIView(APIView):

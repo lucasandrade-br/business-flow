@@ -8,6 +8,9 @@ import Parametros from "@/pages/Cadastros/Parametros.vue";
 import PlanoContas from "@/pages/Cadastros/PlanoContas.vue";
 import ProdutosOficiais from "@/pages/Cadastros/ProdutosOficiais.vue";
 import SistemaPainel from "@/pages/Sistema/Painel.vue";
+import ItensVenda from "@/pages/Vendas/ItensVenda.vue";
+import PagamentosVenda from "@/pages/Vendas/PagamentosVenda.vue";
+import Vendas from "@/pages/Vendas/Vendas.vue";
 
 const routes = [
   {
@@ -61,6 +64,21 @@ const routes = [
         path: "sistema",
         name: "sistema",
         component: SistemaPainel,
+      },
+      {
+        path: "vendas/vendas",
+        name: "vendas-vendas",
+        component: Vendas,
+      },
+      {
+        path: "vendas/itens",
+        name: "vendas-itens",
+        component: ItensVenda,
+      },
+      {
+        path: "vendas/pagamentos",
+        name: "vendas-pagamentos",
+        component: PagamentosVenda,
       },
     ],
   },

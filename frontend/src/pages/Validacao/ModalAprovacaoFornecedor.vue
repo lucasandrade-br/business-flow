@@ -44,55 +44,100 @@
       </section>
 
       <section class="grid gap-3 lg:grid-cols-2">
-        <label class="space-y-1 text-xs">
-          <span class="inline-flex items-center gap-1 font-medium text-gray-600">
-            ID CodSis
-            <span class="group relative inline-flex items-center">
-              <HelpCircle class="h-4 w-4 text-gray-400" />
-              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
-                Identificador legado para integracao
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="inline-flex items-center gap-1 font-medium text-gray-600">
+              ID CodSis
+              <span class="group relative inline-flex items-center">
+                <HelpCircle class="h-4 w-4 text-gray-400" />
+                <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
+                  Identificador legado para integracao
+                </span>
               </span>
             </span>
-          </span>
-          <input v-model="form.id_codsis" type="number" class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm" />
-        </label>
-        <label class="space-y-1 text-xs">
-          <span class="inline-flex items-center gap-1 font-medium text-gray-600">
-            Codigo (5)
-            <span class="group relative inline-flex items-center">
-              <HelpCircle class="h-4 w-4 text-gray-400" />
-              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
-                Codigo numerico com 5 digitos
+            <input
+              v-model="form.id_codsis"
+              type="number"
+              :class="[
+                'w-full rounded-md border px-3 py-2 text-sm',
+                isCampoDivergente('id_codsis', form.id_codsis, normalizeNumber) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+            />
+          </label>
+          <p v-if="isCampoDivergente('id_codsis', form.id_codsis, normalizeNumber)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('id_codsis') }}
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="inline-flex items-center gap-1 font-medium text-gray-600">
+              Codigo (5)
+              <span class="group relative inline-flex items-center">
+                <HelpCircle class="h-4 w-4 text-gray-400" />
+                <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
+                  Codigo numerico com 5 digitos
+                </span>
               </span>
             </span>
-          </span>
-          <input
-            v-model="form.codigo"
-            maxlength="5"
-            class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
-            @blur="form.codigo = padCodigo(form.codigo)"
-          />
-        </label>
-        <label class="space-y-1 text-xs">
-          <span class="inline-flex items-center gap-1 font-medium text-gray-600">
-            Operador
-            <span class="group relative inline-flex items-center">
-              <HelpCircle class="h-4 w-4 text-gray-400" />
-              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
-                Nivel de operacao permitido (0, 1 ou 10)
+            <input
+              v-model="form.codigo"
+              maxlength="5"
+              :class="[
+                'w-full rounded-md border px-3 py-2 text-sm',
+                isCampoDivergente('codigo', form.codigo, normalizeString) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+              @blur="form.codigo = padCodigo(form.codigo)"
+            />
+          </label>
+          <p v-if="isCampoDivergente('codigo', form.codigo, normalizeString)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('codigo') }}
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="inline-flex items-center gap-1 font-medium text-gray-600">
+              Operador
+              <span class="group relative inline-flex items-center">
+                <HelpCircle class="h-4 w-4 text-gray-400" />
+                <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
+                  Nivel de operacao permitido (0, 1 ou 10)
+                </span>
               </span>
             </span>
-          </span>
-          <select v-model="form.operador" class="w-full appearance-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
-            <option :value="0">0</option>
-            <option :value="1">1</option>
-            <option :value="10">10</option>
-          </select>
-        </label>
-        <label class="space-y-1 text-xs">
-          <span class="font-medium text-gray-600">Usuario</span>
-          <input v-model="form.usuario" class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm" />
-        </label>
+            <select
+              v-model="form.operador"
+              :class="[
+                'w-full appearance-none rounded-md border bg-white px-3 py-2 text-sm',
+                isCampoDivergente('operador', form.operador, normalizeNumber) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+            >
+              <option :value="0">0</option>
+              <option :value="1">1</option>
+              <option :value="10">10</option>
+            </select>
+          </label>
+          <p v-if="isCampoDivergente('operador', form.operador, normalizeNumber)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('operador') }}
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="font-medium text-gray-600">Usuario</span>
+            <input
+              v-model="form.usuario"
+              :class="[
+                'w-full rounded-md border px-3 py-2 text-sm',
+                isCampoDivergente('usuario', form.usuario, normalizeString) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+            />
+          </label>
+          <p v-if="isCampoDivergente('usuario', form.usuario, normalizeString)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('usuario') }}
+          </p>
+        </div>
       </section>
 
       <p v-if="error" class="text-xs text-red-600">{{ error }}</p>
@@ -162,6 +207,14 @@ watch(
 
 function normalizeString(value) {
   return String(value || "").trim();
+}
+
+function normalizeNumber(value) {
+  if (value === "" || value === null || value === undefined) {
+    return "";
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(parsed) : "";
 }
 
 function isAtualizacao() {

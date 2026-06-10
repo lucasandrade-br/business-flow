@@ -1,7 +1,10 @@
 <template>
   <article class="overflow-hidden rounded-md border border-gray-200 bg-white">
-    <header class="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
+    <header
+      class="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 sm:flex-row sm:items-center"
+      :class="hasHeaderText ? 'sm:justify-between' : 'sm:justify-start'"
+    >
+      <div v-if="hasHeaderText">
         <h2 class="text-sm font-semibold text-[#373435]">{{ title }}</h2>
         <p v-if="subtitle" class="mt-1 text-xs text-gray-500">{{ subtitle }}</p>
       </div>
@@ -85,6 +88,10 @@ const props = defineProps({
 });
 
 defineEmits(["next", "previous"]);
+
+const hasHeaderText = computed(() => {
+  return Boolean(String(props.title || "").trim() || String(props.subtitle || "").trim());
+});
 
 const selectedRowKeySet = computed(() => new Set(props.selectedRowKeys || []));
 </script>

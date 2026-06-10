@@ -3,8 +3,8 @@
     <article v-if="!hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 class="text-sm font-semibold text-[#373435]">Hub de Reconciliacao Financeira</h2>
-          <p class="mt-1 text-xs text-gray-500">Integracao isolada para ingestao legado de vendas NFCe e DAV no staging.</p>
+          <h2 class="text-sm font-semibold text-[#373435]">Hub de Reconciliação Financeira</h2>
+          <p class="mt-1 text-xs text-gray-500">Integração isolada para ingestão legado de vendas NFCe e DAV no staging.</p>
         </div>
         <button
           type="button"
@@ -21,8 +21,8 @@
     <article v-if="!hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4 space-y-3">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 class="text-sm font-semibold text-[#373435]">Ingestao de Auditoria (Excel)</h3>
-          <p class="mt-1 text-xs text-gray-500">Selecione uma pasta ou varios arquivos .xlsx/.xlsm da aba HostVenda para importar e validar.</p>
+          <h3 class="text-sm font-semibold text-[#373435]">Ingestão de Auditoria (Excel)</h3>
+          <p class="mt-1 text-xs text-gray-500">Selecione uma pasta ou vários arquivos .xlsx/.xlsm da aba HostVenda para importar e validar.</p>
         </div>
 
         <button
@@ -56,12 +56,12 @@
           :disabled="uploading || selectedFiles.length === 0"
           @click="clearSelectedFiles"
         >
-          Limpar Selecao
+          Limpar Seleção
         </button>
       </div>
 
       <div class="rounded-md border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600">
-        <p><strong>Arquivos prontos para importacao:</strong> {{ selectedFiles.length }}</p>
+        <p><strong>Arquivos prontos para importação:</strong> {{ selectedFiles.length }}</p>
       </div>
 
       <div v-if="importJob" class="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900">
@@ -74,9 +74,9 @@
 
     <article v-if="hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4 space-y-3">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Resumo da Importacao e Validacao</h3>
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Resumo da Importação e Validação</h3>
         <button type="button" class="rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50" @click="resetFluxo">
-          Nova importacao
+          Nova importação
         </button>
       </div>
 
@@ -125,9 +125,9 @@
         <div class="flex items-center gap-2">
           <label class="text-xs text-gray-700">Filtro:</label>
           <select v-model="activeFiltro" class="rounded-md border border-gray-200 px-2 py-1 text-xs" @change="reloadDivergencias(true)">
-            <option value="todos">Todas divergencias</option>
-            <option value="divergencia_totais">Divergencia de totais</option>
-            <option value="divergencia_formato">Divergencia de formato</option>
+            <option value="todos">Todas divergências</option>
+            <option value="divergencia_totais">Divergência de totais</option>
+            <option value="divergencia_formato">Divergência de formato</option>
             <option value="duplicado_sot">Duplicado no SOT</option>
             <option value="status_f">Somente finalizados</option>
             <option value="status_c">Somente cancelados</option>
@@ -135,10 +135,6 @@
           <label class="inline-flex items-center gap-1 text-xs text-gray-700">
             <input v-model="somentePendentes" type="checkbox" @change="reloadDivergencias(true)" />
             Somente pendentes
-          </label>
-          <label class="inline-flex items-center gap-1 text-xs text-gray-700">
-            <input :checked="allPaginaSelecionada" type="checkbox" @change="toggleSelecionarTodos($event.target.checked)" />
-            Selecionar todos da pagina
           </label>
         </div>
 
@@ -171,8 +167,6 @@
       </div>
 
       <BaseTable
-        title="Divergencias Consolidadas"
-        subtitle="Comparacao entre STG e Auditoria"
         :columns="tableColumns"
         :rows="rows"
         row-key="row_key"
@@ -186,6 +180,13 @@
         @next="goNext"
         @previous="goPrevious"
       >
+        <template #header-extra>
+          <label class="inline-flex items-center gap-1 text-xs text-gray-700">
+            <input :checked="allPaginaSelecionada" type="checkbox" @change="toggleSelecionarTodos($event.target.checked)" />
+            Selecionar todos da página
+          </label>
+        </template>
+
         <template #cell-select="{ row }">
           <div class="flex cursor-pointer items-center" @click="toggleLinha(row)">
             <input
@@ -219,8 +220,14 @@
         </template>
 
         <template #cell-total_itens="{ row }">
-          <span :class="financialDivergenciaClass(row, 'total_itens')">
+          <span class="relative inline-flex" :class="financialDivergenciaClass(row, 'total_itens')">
             {{ asMoney(row.totais?.total_itens) }}
+            <span
+              v-if="row.totais?.total_itens_via_fallback"
+              class="absolute -right-1.5 -top-1.5 h-2 w-2 rounded-full bg-amber-500"
+              title="Total de itens calculado com base em itens cancelados (nao havia itens ativos)."
+              aria-label="Indicador de fallback no total de itens"
+            />
           </span>
         </template>
 
@@ -267,7 +274,9 @@
       <div class="rounded-md border border-gray-200 p-3 space-y-2">
         <p class="text-xs font-semibold text-gray-700">Consolidacao para tabelas oficiais (SOT)</p>
         <p v-if="canConsolidar" class="text-xs text-gray-600">Tudo consistente. A consolidacao pode ser aprovada.</p>
-        <p v-else class="text-xs text-red-600">Existem divergencias pendentes. Resolva-as ou negligencie-as antes da aprovacao.</p>
+        <ul v-else class="list-disc pl-4 text-xs text-red-600 space-y-0.5">
+          <li v-for="motivo in consolidacaoBloqueios" :key="motivo">{{ motivo }}</li>
+        </ul>
         <button
           type="button"
           class="inline-flex items-center gap-2 rounded-md bg-[#1f4f8a] px-3 py-2 text-xs font-semibold text-white hover:bg-[#193f6e] disabled:cursor-not-allowed disabled:opacity-70"
@@ -440,6 +449,13 @@ const importSummary = reactive({
   erros_importacao: [],
 });
 
+const pendenciasResumo = reactive({
+  produtos: 0,
+  clientes: 0,
+  fornecedores: 0,
+});
+const resumoPendenciasDisponivel = ref(true);
+
 const kpis = reactive({
   total_vendas_stg: 0,
   vendas_aprovadas: 0,
@@ -485,8 +501,8 @@ const tableColumns = [
   { key: "select", label: "Sel" },
   { key: "venda", label: "Venda" },
   { key: "status_venda", label: "Status" },
-  { key: "total_documento", label: "Documento" },
-  { key: "total_itens", label: "Total Itens" },
+  { key: "total_documento", label: "Total Doc." },
+  { key: "total_itens", label: "Total Ite." },
   { key: "total_pagamentos", label: "Total Pag." },
   { key: "total_auditoria", label: "Total Aud." },
   { key: "formato_venda", label: "Form. Venda" },
@@ -495,7 +511,35 @@ const tableColumns = [
 ];
 
 const hasValidationResult = computed(() => Number(kpis.total_vendas_stg || 0) > 0);
-const canConsolidar = computed(() => Number(kpis.vendas_divergentes || 0) === 0 && Number(kpis.vendas_aprovadas || 0) > 0);
+const hasPendenciasCadastro = computed(() => (
+  Number(pendenciasResumo.produtos || 0) > 0
+  || Number(pendenciasResumo.clientes || 0) > 0
+  || Number(pendenciasResumo.fornecedores || 0) > 0
+));
+const consolidacaoBloqueios = computed(() => {
+  const motivos = [];
+  if (Number(kpis.vendas_aprovadas || 0) <= 0) {
+    motivos.push("Nao ha vendas aprovadas para consolidar.");
+  }
+  if (Number(kpis.vendas_divergentes || 0) > 0) {
+    motivos.push("Existem divergencias pendentes na reconciliacao.");
+  }
+  if (!resumoPendenciasDisponivel.value) {
+    motivos.push("Nao foi possivel validar pendencias de cadastro no momento.");
+  }
+  if (hasPendenciasCadastro.value) {
+    motivos.push(
+      `Existem pendencias de cadastro (produtos: ${pendenciasResumo.produtos}, clientes: ${pendenciasResumo.clientes}, fornecedores: ${pendenciasResumo.fornecedores}).`,
+    );
+  }
+  return motivos;
+});
+const canConsolidar = computed(() => (
+  Number(kpis.vendas_divergentes || 0) === 0
+  && Number(kpis.vendas_aprovadas || 0) > 0
+  && resumoPendenciasDisponivel.value
+  && !hasPendenciasCadastro.value
+));
 const selectedRows = computed(() => rows.value.filter((row) => selectedMap[row.row_key]));
 const allPaginaSelecionada = computed(() => rows.value.length > 0 && selectedRows.value.length === rows.value.length);
 const confirmDescription = computed(() => {
@@ -674,6 +718,31 @@ function resetFluxo() {
       kpis[key] = "0";
     }
   });
+  pendenciasResumo.produtos = 0;
+  pendenciasResumo.clientes = 0;
+  pendenciasResumo.fornecedores = 0;
+  resumoPendenciasDisponivel.value = true;
+}
+
+async function carregarResumoPendencias() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/validacao/resumo`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.detail || `Erro ${response.status}`);
+    }
+
+    pendenciasResumo.produtos = Number(payload.produtos || 0);
+    pendenciasResumo.clientes = Number(payload.clientes || 0);
+    pendenciasResumo.fornecedores = Number(payload.fornecedores || 0);
+    resumoPendenciasDisponivel.value = true;
+  } catch (err) {
+    console.error(err);
+    pendenciasResumo.produtos = 0;
+    pendenciasResumo.clientes = 0;
+    pendenciasResumo.fornecedores = 0;
+    resumoPendenciasDisponivel.value = false;
+  }
 }
 
 function buildUrl(url = "") {
@@ -1041,8 +1110,9 @@ async function importAuditoria() {
 }
 
 async function consolidarSot() {
+  await carregarResumoPendencias();
   if (!canConsolidar.value) {
-    uploadError.value = "Ainda existem divergencias pendentes; consolidacao bloqueada.";
+    uploadError.value = "Consolidacao bloqueada. Verifique os motivos exibidos no painel.";
     return;
   }
 
@@ -1102,7 +1172,7 @@ async function submit() {
 }
 
 onMounted(async () => {
-  await Promise.all([reloadDivergencias(true), carregarFormasPagamento()]);
+  await Promise.all([reloadDivergencias(true), carregarFormasPagamento(), carregarResumoPendencias()]);
 });
 
 onBeforeUnmount(() => {

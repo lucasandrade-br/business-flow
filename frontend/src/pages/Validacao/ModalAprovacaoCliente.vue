@@ -37,49 +37,85 @@
       </section>
 
       <section class="grid gap-3 lg:grid-cols-3">
-        <label class="space-y-1 text-xs">
-          <span class="inline-flex items-center gap-1 font-medium text-gray-600">
-            Prazo Cobranca
-            <span class="text-red-500">*</span>
-            <span class="group relative inline-flex items-center">
-              <HelpCircle class="h-4 w-4 text-gray-400" />
-              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
-                Prazo em dias para cobranca do cliente
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="inline-flex items-center gap-1 font-medium text-gray-600">
+              Prazo Cobranca
+              <span class="text-red-500">*</span>
+              <span class="group relative inline-flex items-center">
+                <HelpCircle class="h-4 w-4 text-gray-400" />
+                <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
+                  Prazo em dias para cobranca do cliente
+                </span>
               </span>
             </span>
-          </span>
-          <input v-model="form.prazo_cob" type="number" class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm" />
-        </label>
-        <label class="space-y-1 text-xs">
-          <span class="inline-flex items-center gap-1 font-medium text-gray-600">
-            Grupo
-            <span class="group relative inline-flex items-center">
-              <HelpCircle class="h-4 w-4 text-gray-400" />
-              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
-                Classificacao comercial do cliente
+            <input
+              v-model="form.prazo_cob"
+              type="number"
+              :class="[
+                'w-full rounded-md border px-3 py-2 text-sm',
+                isCampoDivergente('prazo_cob', form.prazo_cob, normalizeNumber) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+            />
+          </label>
+          <p v-if="isCampoDivergente('prazo_cob', form.prazo_cob, normalizeNumber)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('prazo_cob') }}
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="inline-flex items-center gap-1 font-medium text-gray-600">
+              Grupo
+              <span class="group relative inline-flex items-center">
+                <HelpCircle class="h-4 w-4 text-gray-400" />
+                <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
+                  Classificacao comercial do cliente
+                </span>
               </span>
             </span>
-          </span>
-          <select v-model="form.id_grupo" class="w-full appearance-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
-            <option value="">Selecione</option>
-            <option v-for="option in gruposOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <label class="space-y-1 text-xs">
-          <span class="inline-flex items-center gap-1 font-medium text-gray-600">
-            Tipo de Venda
-            <span class="group relative inline-flex items-center">
-              <HelpCircle class="h-4 w-4 text-gray-400" />
-              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
-                Define a modalidade de venda para o cliente
+            <select
+              v-model="form.id_grupo"
+              :class="[
+                'w-full appearance-none rounded-md border bg-white px-3 py-2 text-sm',
+                isCampoDivergente('id_grupo', form.id_grupo, normalizeNumber) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+            >
+              <option value="">Selecione</option>
+              <option v-for="option in gruposOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <p v-if="isCampoDivergente('id_grupo', form.id_grupo, normalizeNumber)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('id_grupo') }}
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label class="space-y-1 text-xs">
+            <span class="inline-flex items-center gap-1 font-medium text-gray-600">
+              Tipo de Venda
+              <span class="group relative inline-flex items-center">
+                <HelpCircle class="h-4 w-4 text-gray-400" />
+                <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-56 -translate-x-1/2 rounded-md bg-[#1f1f1f] px-2 py-1 text-[11px] font-normal text-white group-hover:block">
+                  Define a modalidade de venda para o cliente
+                </span>
               </span>
             </span>
-          </span>
-          <select v-model="form.id_tipo_venda" class="w-full appearance-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
-            <option value="">Selecione</option>
-            <option v-for="option in tiposVendaOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
+            <select
+              v-model="form.id_tipo_venda"
+              :class="[
+                'w-full appearance-none rounded-md border bg-white px-3 py-2 text-sm',
+                isCampoDivergente('id_tipo_venda', form.id_tipo_venda, normalizeNumber) ? 'border-yellow-300 bg-yellow-50 text-yellow-900' : 'border-gray-200',
+              ]"
+            >
+              <option value="">Selecione</option>
+              <option v-for="option in tiposVendaOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <p v-if="isCampoDivergente('id_tipo_venda', form.id_tipo_venda, normalizeNumber)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('id_tipo_venda') }}
+          </p>
+        </div>
       </section>
 
       <p v-if="error" class="text-xs text-red-600">{{ error }}</p>
@@ -151,6 +187,14 @@ watch(
 
 function normalizeString(value) {
   return String(value || "").trim();
+}
+
+function normalizeNumber(value) {
+  if (value === "" || value === null || value === undefined) {
+    return "";
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(parsed) : "";
 }
 
 function isAtualizacao() {

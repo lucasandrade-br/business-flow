@@ -64,7 +64,45 @@
       @previous="goPrevious"
     >
       <template #header-extra>
-        <span class="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600">{{ rows.length }} nesta pagina</span>
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:w-full">
+          <div class="flex items-center gap-2">
+            <span class="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600">{{ rows.length }} nesta pagina</span>
+            <label class="inline-flex items-center gap-1 text-xs text-gray-700">
+              <input :checked="allPaginaSelecionada" type="checkbox" @change="toggleSelecionarTodos($event.target.checked)" />
+              Selecionar todos da pagina
+            </label>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="rounded-md border border-[#03ad12] px-3 py-1.5 text-xs text-[#03ad12] hover:bg-[#d7fce1] disabled:opacity-60"
+              :disabled="!selectedRows.length || applyingBatch"
+              @click="validarSelecionados"
+            >
+              {{ applyingBatch ? "Processando..." : "Validar Selecionados" }}
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-[#a82631] px-3 py-1.5 text-xs text-[#a82631] hover:bg-[#fff5f6] disabled:opacity-60"
+              :disabled="!selectedRows.length || applyingBatch"
+              @click="negligenciarSelecionados"
+            >
+              {{ applyingBatch ? "Processando..." : "Negligenciar Selecionados" }}
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template #cell-select="{ row }">
+        <div class="flex cursor-pointer items-center" @click="toggleLinha(row)">
+          <input
+            :checked="selectedMap[getRowKeyValue(row)] || false"
+            type="checkbox"
+            @click.stop
+            @change="toggleRow(row, $event.target.checked)"
+          />
+        </div>
       </template>
 
       <template #cell-custo="{ row }">
@@ -152,6 +190,7 @@ const cards = [
 
 const columnsByEntity = {
   produtos: [
+    { key: "select", label: "Sel" },
     { key: "id_produto", label: "ID" },
     { key: "nome", label: "Produto" },
     { key: "tipo_pendencia", label: "Status" },
@@ -159,12 +198,14 @@ const columnsByEntity = {
     { key: "valor_venda", label: "Venda" },
   ],
   clientes: [
+    { key: "select", label: "Sel" },
     { key: "id_cliente", label: "ID" },
     { key: "nome_cliente", label: "Cliente" },
     { key: "tipo_pendencia", label: "Status" },
     { key: "raz_social", label: "Razao Social" },
   ],
   fornecedores: [
+    { key: "select", label: "Sel" },
     { key: "id_fornecedor", label: "ID" },
     { key: "nome_fornecedor", label: "Fornecedor" },
     { key: "tipo_pendencia", label: "Status" },
@@ -191,6 +232,8 @@ const activeEntity = ref("produtos");
 const summary = ref({ produtos: 0, clientes: 0, fornecedores: 0 });
 const search = ref("");
 let searchDebounce = null;
+const applyingBatch = ref(false);
+const selectedMap = ref({});
 
 const showProdutoModal = ref(false);
 const showClienteModal = ref(false);
@@ -213,6 +256,8 @@ const tableTitle = computed(() => {
 });
 
 const tableSubtitle = computed(() => "Itens de staging aguardando aprovação");
+const selectedRows = computed(() => rows.value.filter((row) => selectedMap.value[getRowKeyValue(row)]));
+const allPaginaSelecionada = computed(() => rows.value.length > 0 && selectedRows.value.length === rows.value.length);
 
 function asMoney(value) {
   return Number(value || 0).toLocaleString("pt-BR", {
@@ -226,6 +271,33 @@ function notify(message) {
   setTimeout(() => {
     toast.value = "";
   }, 2500);
+}
+
+function getRowKeyValue(row) {
+  if (activeEntity.value === "clientes") return String(row.id_cliente);
+  if (activeEntity.value === "fornecedores") return String(row.id_fornecedor);
+  return String(row.id_produto);
+}
+
+function clearSelection() {
+  selectedMap.value = {};
+}
+
+function toggleRow(row, checked) {
+  selectedMap.value[getRowKeyValue(row)] = Boolean(checked);
+}
+
+function toggleLinha(row) {
+  const key = getRowKeyValue(row);
+  selectedMap.value[key] = !Boolean(selectedMap.value[key]);
+}
+
+function toggleSelecionarTodos(checked) {
+  const next = { ...selectedMap.value };
+  for (const row of rows.value) {
+    next[getRowKeyValue(row)] = Boolean(checked);
+  }
+  selectedMap.value = next;
 }
 
 async function loadResumo() {
@@ -272,6 +344,7 @@ async function load(url = baseEndpoint()) {
     count.value = data.count || 0;
     next.value = data.next || "";
     previous.value = data.previous || "";
+    clearSelection();
   } catch (err) {
     console.error(err);
     error.value = "Nao foi possivel carregar os produtos pendentes.";
@@ -307,7 +380,55 @@ function openModal(row) {
 
 async function selectEntity(entity) {
   activeEntity.value = entity;
+  clearSelection();
   await load(baseEndpoint());
+}
+
+async function aplicarLotePendencias(acao) {
+  if (!selectedRows.value.length) {
+    return;
+  }
+
+  applyingBatch.value = true;
+  try {
+    const ids = selectedRows.value.map((row) => Number(getRowKeyValue(row))).filter((id) => Number.isFinite(id));
+    const response = await fetch(`${API_BASE_URL}/api/validacao/pendencias/tratar-lote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entidade: activeEntity.value,
+        acao,
+        ids,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.detail || `Erro ${response.status}`);
+    }
+
+    const totalFalhas = Array.isArray(payload.falhas) ? payload.falhas.length : 0;
+    const msg = totalFalhas > 0
+      ? `${payload.detail || "Tratamento em lote concluido."} Falhas: ${totalFalhas}.`
+      : (payload.detail || "Tratamento em lote concluido.");
+
+    notify(msg);
+    await loadResumo();
+    await load(baseEndpoint());
+  } catch (err) {
+    console.error(err);
+    notify(err?.message || "Falha ao processar lote.");
+  } finally {
+    applyingBatch.value = false;
+  }
+}
+
+function validarSelecionados() {
+  return aplicarLotePendencias("validar");
+}
+
+function negligenciarSelecionados() {
+  return aplicarLotePendencias("negligenciar");
 }
 
 watch(search, () => {

@@ -9,6 +9,7 @@ from os import cpu_count
 from threading import Lock, Thread
 from time import perf_counter
 from typing import Any
+import unicodedata
 from uuid import uuid4
 
 from django.core.files.uploadedfile import UploadedFile
@@ -18,7 +19,16 @@ from django.utils import timezone
 from openpyxl import load_workbook
 from openpyxl.utils.datetime import from_excel
 
-from apps.cadastros.models import Cliente, FormaPagamento, Produto, Usuario
+from apps.cadastros.models import (
+    Cliente,
+    FormaPagamento,
+    FormaPagamentoMapeamento,
+    FormaPagamentoOrigem,
+    Produto,
+    UnidadeMedida,
+    Usuario,
+)
+from apps.validacao.services_legacy import contar_pendencias_validacao
 from apps.validacao.models import STG_AuditoriaPlanilha, STG_ItemVenda, STG_PagamentoVenda, STG_Venda
 from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
 
@@ -30,6 +40,19 @@ MOTIVOS_DIVERGENCIA_VALIDOS = {
     "divergencia_totais",
     "divergencia_formato",
     "duplicado_sot",
+}
+UNIDADE_ALIAS: dict[str, str] = {
+    "UND": "UN",
+    "UNID": "UN",
+    "UNIDADE": "UN",
+    "LITRO": "LT",
+    "LITROS": "LT",
+    "LTS": "LT",
+    "KILO": "KG",
+    "KILOGRAMA": "KG",
+    "KILOGRAMAS": "KG",
+    "GRAMA": "G",
+    "GRAMAS": "G",
 }
 
 _IMPORT_JOBS: dict[str, dict[str, Any]] = {}
@@ -60,6 +83,51 @@ def _normalize_text(value: Any) -> str:
     return str(value).strip()
 
 
+def _normalize_identity_text(value: Any) -> str:
+    raw = _normalize_text(value)
+    if not raw:
+        return ""
+    normalized = unicodedata.normalize("NFKD", raw)
+    without_accents = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(without_accents.upper().split())
+
+
+def _normalize_unit_token(value: Any) -> str:
+    text = _normalize_identity_text(value)
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def _resolver_unidade_legado(
+    *,
+    unidade_legado: str,
+    unidades_por_sigla: dict[str, UnidadeMedida],
+) -> UnidadeMedida | None:
+    token = _normalize_unit_token(unidade_legado)
+    if not token:
+        return None
+
+    unidade = unidades_por_sigla.get(token)
+    if unidade is not None:
+        return unidade
+
+    alias = UNIDADE_ALIAS.get(token)
+    if alias:
+        return unidades_por_sigla.get(alias)
+    return None
+
+
+def _formatar_erros_precheck(erros: list[str], max_items: int = 40) -> str:
+    linhas = ["Consolidacao bloqueada por inconsistencias de pre-check."]
+    for item in erros[:max_items]:
+        linhas.append(f"- {item}")
+
+    restante = len(erros) - max_items
+    if restante > 0:
+        linhas.append(f"- ... e mais {restante} inconsistencia(s).")
+
+    return "\n".join(linhas)
+
+
 def _normalize_tipo_documento(value: Any) -> str:
     raw = _normalize_text(value).upper().replace("-", "")
     if raw in {"NFCE", "NFC-E"}:
@@ -67,6 +135,67 @@ def _normalize_tipo_documento(value: Any) -> str:
     if raw == STG_AuditoriaPlanilha.TIPO_DAV:
         return STG_AuditoriaPlanilha.TIPO_DAV
     return ""
+
+
+def _resolver_forma_por_origem(
+    *,
+    tipo_documento: str,
+    id_forma_origem: int | None,
+    descricao_origem: str = "",
+    persist_fallback: bool = False,
+) -> FormaPagamento | None:
+    if id_forma_origem is None:
+        return None
+
+    tipo_norm = _normalize_text(tipo_documento).upper()
+
+    mapeamento = (
+        FormaPagamentoMapeamento.objects.select_related("forma_pagamento")
+        .filter(tipo_documento=tipo_norm, id_forma_origem=id_forma_origem, ativo=True)
+        .first()
+    )
+    if mapeamento is not None:
+        return mapeamento.forma_pagamento
+
+    forma = FormaPagamento.objects.filter(id_forma=id_forma_origem).first()
+    if forma is None and descricao_origem:
+        forma = FormaPagamento.objects.filter(descricao__iexact=_normalize_text(descricao_origem)).first()
+
+    if forma is None:
+        return None
+
+    if persist_fallback and tipo_norm:
+        FormaPagamentoMapeamento.objects.get_or_create(
+            tipo_documento=tipo_norm,
+            id_forma_origem=id_forma_origem,
+            defaults={
+                "forma_pagamento": forma,
+                "descricao_origem": _normalize_text(descricao_origem) or _normalize_text(forma.descricao),
+                "ativo": True,
+            },
+        )
+
+    return forma
+
+
+def _resolver_origem_por_forma(*, tipo_documento: str, id_forma_destino: int) -> tuple[int, str]:
+    tipo_norm = _normalize_text(tipo_documento).upper()
+    forma = FormaPagamento.objects.filter(id_forma=id_forma_destino).first()
+    if forma is None:
+        raise ValueError("Forma de pagamento destino nao encontrada.")
+
+    mapeamento = FormaPagamentoMapeamento.objects.filter(
+        forma_pagamento_id=id_forma_destino,
+        tipo_documento=tipo_norm,
+        ativo=True,
+    ).first()
+    if mapeamento is None:
+        raise ValueError(
+            f"Nao existe mapeamento para a forma '{forma.descricao}' no tipo '{tipo_norm}'."
+        )
+
+    descricao = _normalize_text(mapeamento.descricao_origem) or _normalize_text(forma.descricao)
+    return int(mapeamento.id_forma_origem), descricao
 
 
 def _to_decimal(value: Any) -> Decimal | None:
@@ -307,6 +436,7 @@ def _build_divergencia_snapshot(
     motivos: list[str],
     total_documento: Decimal,
     total_itens: Decimal,
+    total_itens_via_fallback: bool,
     total_pagamentos: Decimal,
     status_venda: str,
     auditoria_encontrada: bool,
@@ -319,6 +449,7 @@ def _build_divergencia_snapshot(
         "status_venda": status_venda,
         "total_documento": str(total_documento),
         "total_itens": str(total_itens),
+        "total_itens_via_fallback": bool(total_itens_via_fallback),
         "total_pagamentos": str(total_pagamentos),
         "total_auditoria": str(auditoria_valor) if auditoria_encontrada else None,
         "formato_venda": pagamentos_stg,
@@ -330,6 +461,7 @@ def _avaliar_venda(
     *,
     venda: STG_Venda,
     total_itens: Decimal,
+    total_itens_via_fallback: bool,
     total_pagamentos: Decimal,
     pagamentos_tokens: set[str],
     auditoria_encontrada: bool,
@@ -367,6 +499,7 @@ def _avaliar_venda(
         motivos=motivos,
         total_documento=total_documento,
         total_itens=total_itens,
+        total_itens_via_fallback=total_itens_via_fallback,
         total_pagamentos=total_pagamentos,
         status_venda=venda.status_venda,
         auditoria_encontrada=auditoria_encontrada,
@@ -386,11 +519,18 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
             tratamento_atualizado_em=None,
         )
 
-    item_totais = {
+    # Prioriza itens ativos (cancelado=False). Quando uma venda possui somente itens marcados
+    # como cancelados, usa fallback para o total de todos os itens para evitar total_itens zerado.
+    item_totais_ativos = {
         (item["tipo_documento"], int(item["id_venda_legado"])): item["total_itens"] or Decimal("0")
         for item in STG_ItemVenda.objects.filter(cancelado=False)
         .values("tipo_documento", "id_venda_legado")
         .annotate(total_itens=Sum("valor_total_calculado"))
+    }
+
+    item_totais_todos = {
+        (item["tipo_documento"], int(item["id_venda_legado"])): item["total_itens"] or Decimal("0")
+        for item in STG_ItemVenda.objects.values("tipo_documento", "id_venda_legado").annotate(total_itens=Sum("valor_total_calculado"))
     }
 
     pagamentos_totais = {
@@ -452,7 +592,10 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
     vendas = list(STG_Venda.objects.all())
     for venda in vendas:
         key = (venda.tipo_documento, int(venda.id_legado))
-        total_itens = item_totais.get(key, Decimal("0"))
+        total_itens = item_totais_ativos.get(key)
+        total_itens_via_fallback = total_itens is None
+        if total_itens_via_fallback:
+            total_itens = item_totais_todos.get(key, Decimal("0"))
         total_pagamentos = pagamentos_totais.get(key, Decimal("0"))
         total_documento = venda.valor_final or Decimal("0")
         status_venda_norm = _normalize_text(venda.status_venda).upper()
@@ -470,6 +613,7 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
         motivos, snapshot = _avaliar_venda(
             venda=venda,
             total_itens=total_itens,
+            total_itens_via_fallback=total_itens_via_fallback,
             total_pagamentos=total_pagamentos,
             pagamentos_tokens=pagamentos,
             auditoria_encontrada=bool(auditoria_data["encontrada"]),
@@ -605,6 +749,7 @@ def listar_divergencias_reconciliacao(
             }
         )
 
+    cache_forma_canonica: dict[tuple[str, int], int | None] = {}
     rows: list[dict[str, Any]] = []
     for venda in divergentes:
         if status_norm and venda.status_tratamento != status_norm:
@@ -620,6 +765,32 @@ def listar_divergencias_reconciliacao(
         motivos = snapshot.get("motivos") or []
         if motivo_norm and motivo_norm not in motivos:
             continue
+
+        pagamentos_detalhe = []
+        for pg in venda.pagamentos.all():
+            id_forma_canonica = None
+            if pg.id_tipo_pagamento_legado is not None:
+                chave_cache = (venda.tipo_documento, int(pg.id_tipo_pagamento_legado))
+                if chave_cache in cache_forma_canonica:
+                    id_forma_canonica = cache_forma_canonica[chave_cache]
+                else:
+                    forma_canonica = _resolver_forma_por_origem(
+                        tipo_documento=venda.tipo_documento,
+                        id_forma_origem=int(pg.id_tipo_pagamento_legado),
+                        descricao_origem=_normalize_text(pg.tipo_pagamento_descricao_legado),
+                    )
+                    id_forma_canonica = int(forma_canonica.id_forma) if forma_canonica is not None else None
+                    cache_forma_canonica[chave_cache] = id_forma_canonica
+
+            pagamentos_detalhe.append(
+                {
+                    "id_stg_pagamento_venda": pg.id_stg_pagamento_venda,
+                    "id_tipo_pagamento_legado": pg.id_tipo_pagamento_legado,
+                    "id_forma_canonica": id_forma_canonica,
+                    "tipo_pagamento_descricao_legado": pg.tipo_pagamento_descricao_legado,
+                    "valor_pago": str(pg.valor_pago or Decimal("0")),
+                }
+            )
 
         rows.append(
             {
@@ -649,15 +820,7 @@ def listar_divergencias_reconciliacao(
                         }
                         for item in venda.itens.all()
                     ],
-                    "pagamentos_detalhe": [
-                        {
-                            "id_stg_pagamento_venda": pg.id_stg_pagamento_venda,
-                            "id_tipo_pagamento_legado": pg.id_tipo_pagamento_legado,
-                            "tipo_pagamento_descricao_legado": pg.tipo_pagamento_descricao_legado,
-                            "valor_pago": str(pg.valor_pago or Decimal("0")),
-                        }
-                        for pg in venda.pagamentos.all()
-                    ],
+                    "pagamentos_detalhe": pagamentos_detalhe,
                 },
                 "auditoria": {
                     "valor_total": snapshot.get("total_auditoria"),
@@ -667,6 +830,7 @@ def listar_divergencias_reconciliacao(
                 "totais": {
                     "total_documento": snapshot.get("total_documento"),
                     "total_itens": snapshot.get("total_itens"),
+                    "total_itens_via_fallback": bool(snapshot.get("total_itens_via_fallback")),
                     "total_pagamentos": snapshot.get("total_pagamentos"),
                     "total_auditoria": snapshot.get("total_auditoria"),
                 },
@@ -771,6 +935,20 @@ def aplicar_tratamento_divergencia(
                 if "id_tipo_pagamento_legado" in pg_data:
                     pagamento.id_tipo_pagamento_legado = pg_data.get("id_tipo_pagamento_legado")
 
+                id_forma_canonica_raw = pg_data.get("id_forma_canonica")
+                if id_forma_canonica_raw not in (None, ""):
+                    try:
+                        id_forma_canonica = int(id_forma_canonica_raw)
+                    except (TypeError, ValueError):
+                        raise ValueError("id_forma_canonica invalido.")
+
+                    id_origem_resolvido, descricao_origem = _resolver_origem_por_forma(
+                        tipo_documento=venda.tipo_documento,
+                        id_forma_destino=id_forma_canonica,
+                    )
+                    pagamento.id_tipo_pagamento_legado = id_origem_resolvido
+                    pagamento.tipo_pagamento_descricao_legado = descricao_origem
+
                 if "tipo_pagamento_descricao_legado" in pg_data:
                     pagamento.tipo_pagamento_descricao_legado = _normalize_text(pg_data.get("tipo_pagamento_descricao_legado"))
 
@@ -800,7 +978,6 @@ def aplicar_tratamento_divergencias_lote(
 
     payload = payload or {}
     id_forma_destino: int | None = None
-    descricao_destino = ""
     if acao_norm == "editar_pagamento":
         id_forma_raw = payload.get("id_forma")
         if id_forma_raw in (None, ""):
@@ -813,7 +990,6 @@ def aplicar_tratamento_divergencias_lote(
         forma = FormaPagamento.objects.filter(id_forma=id_forma_destino).first()
         if forma is None:
             raise ValueError("Forma de pagamento destino nao encontrada.")
-        descricao_destino = _normalize_text(forma.descricao)
 
     processadas = 0
     ignoradas = 0
@@ -861,9 +1037,13 @@ def aplicar_tratamento_divergencias_lote(
                     ]
                 )
             else:
+                id_origem_resolvido, descricao_origem = _resolver_origem_por_forma(
+                    tipo_documento=venda.tipo_documento,
+                    id_forma_destino=int(id_forma_destino),
+                )
                 STG_PagamentoVenda.objects.filter(stg_venda=venda).update(
-                    id_tipo_pagamento_legado=id_forma_destino,
-                    tipo_pagamento_descricao_legado=descricao_destino,
+                    id_tipo_pagamento_legado=id_origem_resolvido,
+                    tipo_pagamento_descricao_legado=descricao_origem,
                 )
 
             processadas += 1
@@ -1033,6 +1213,15 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
     ).exists():
         raise ValueError("Existem vendas divergentes na STG. Corrija antes da consolidacao.")
 
+    pendencias = contar_pendencias_validacao()
+    if any(pendencias.values()):
+        raise ValueError(
+            "Consolidacao bloqueada por pendencias de cadastro: "
+            f"produtos={pendencias['produtos']}, "
+            f"clientes={pendencias['clientes']}, "
+            f"fornecedores={pendencias['fornecedores']}."
+        )
+
     aprovadas = list(
         STG_Venda.objects.filter(status_validacao=STG_Venda.STATUS_APROVADO).exclude(
             status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO
@@ -1046,10 +1235,14 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
 
     existentes = set(Venda.objects.values_list("tipo_documento", "id_legado"))
 
-    inseridas = 0
     ignoradas_duplicadas = 0
-    ignoradas_incompletas = 0
-    detalhes_ignorados: list[dict[str, Any]] = []
+    candidatas: list[STG_Venda] = []
+    itens_por_venda: dict[int, list[STG_ItemVenda]] = {}
+    pagamentos_por_venda: dict[int, list[STG_PagamentoVenda]] = {}
+
+    produto_ids: set[int] = set()
+    usuario_ids: set[int] = set()
+    cliente_ids: set[int] = set()
 
     for stg_venda in aprovadas:
         key = (stg_venda.tipo_documento, int(stg_venda.id_legado))
@@ -1057,102 +1250,226 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
             ignoradas_duplicadas += 1
             continue
 
-        if stg_venda.id_usuario_legado is None:
-            ignoradas_incompletas += 1
-            detalhes_ignorados.append(
-                {
-                    "tipo_documento": stg_venda.tipo_documento,
-                    "id_legado": stg_venda.id_legado,
-                    "motivo": "usuario_legado_ausente",
-                }
-            )
-            continue
-
+        candidatas.append(stg_venda)
         itens = list(stg_venda.itens.all())
         pagamentos = list(stg_venda.pagamentos.all())
+        itens_por_venda[stg_venda.pk] = itens
+        pagamentos_por_venda[stg_venda.pk] = pagamentos
 
-        if not itens or not pagamentos:
-            ignoradas_incompletas += 1
-            detalhes_ignorados.append(
-                {
-                    "tipo_documento": stg_venda.tipo_documento,
-                    "id_legado": stg_venda.id_legado,
-                    "motivo": "venda_sem_itens_ou_pagamentos",
-                }
-            )
-            continue
+        if stg_venda.id_usuario_legado is not None:
+            usuario_ids.add(int(stg_venda.id_usuario_legado))
 
-        produto_ids = [item.id_produto_legado for item in itens if item.id_produto_legado is not None]
-        produto_map = {
-            p.id_produto: p
-            for p in Produto.objects.filter(id_produto__in=produto_ids)
+        if stg_venda.id_cliente_legado not in (None, 0):
+            cliente_ids.add(int(stg_venda.id_cliente_legado))
+
+        for item in itens:
+            if item.id_produto_legado is not None:
+                produto_ids.add(int(item.id_produto_legado))
+
+    if not candidatas:
+        with transaction.atomic():
+            stg_vendas_removidas = STG_Venda.objects.count()
+            stg_auditoria_removidas = STG_AuditoriaPlanilha.objects.count()
+            STG_Venda.objects.all().delete()
+            STG_AuditoriaPlanilha.objects.all().delete()
+
+        return {
+            "vendas_inseridas": 0,
+            "vendas_ignoradas_duplicadas": ignoradas_duplicadas,
+            "vendas_ignoradas_incompletas": 0,
+            "detalhes_ignorados": [],
+            "momento_consolidacao": None,
+            "stg_vendas_removidas": stg_vendas_removidas,
+            "stg_auditoria_removidas": stg_auditoria_removidas,
         }
 
-        if len(produto_map) != len(set(produto_ids)):
-            ignoradas_incompletas += 1
-            detalhes_ignorados.append(
-                {
-                    "tipo_documento": stg_venda.tipo_documento,
-                    "id_legado": stg_venda.id_legado,
-                    "motivo": "produto_nao_encontrado",
-                }
-            )
-            continue
+    usuarios_por_id = {
+        int(usuario.id_usuario): usuario
+        for usuario in Usuario.objects.filter(id_usuario__in=usuario_ids)
+    }
+    clientes_por_id = {
+        int(cliente.id_cliente): cliente
+        for cliente in Cliente.objects.filter(id_cliente__in=cliente_ids)
+    }
+    produtos_por_id = {
+        int(produto.id_produto): produto
+        for produto in Produto.objects.filter(id_produto__in=produto_ids)
+    }
 
-        pagamentos_convertidos: list[tuple[FormaPagamento, STG_PagamentoVenda]] = []
-        pagamento_invalido = False
-        for pg in pagamentos:
-            if pg.id_tipo_pagamento_legado is None:
-                pagamento_invalido = True
-                break
-            forma, _ = FormaPagamento.objects.get_or_create(
-                id_forma=pg.id_tipo_pagamento_legado,
-                defaults={"descricao": pg.tipo_pagamento_descricao_legado or f"Forma {pg.id_tipo_pagamento_legado}"},
-            )
-            pagamentos_convertidos.append((forma, pg))
+    unidades_por_sigla: dict[str, UnidadeMedida] = {}
+    for unidade in UnidadeMedida.objects.all():
+        token = _normalize_unit_token(unidade.sigla)
+        if token:
+            unidades_por_sigla[token] = unidade
 
-        if pagamento_invalido:
-            ignoradas_incompletas += 1
-            detalhes_ignorados.append(
-                {
-                    "tipo_documento": stg_venda.tipo_documento,
-                    "id_legado": stg_venda.id_legado,
-                    "motivo": "pagamento_sem_id_forma",
-                }
-            )
-            continue
-
-        usuario, _ = Usuario.objects.get_or_create(
-            id_usuario=stg_venda.id_usuario_legado,
-            defaults={"nome": stg_venda.nome_usuario_legado or f"Usuario {stg_venda.id_usuario_legado}"},
+    formas_origem_validas = {
+        (str(tipo).strip().upper(), int(id_origem))
+        for tipo, id_origem in FormaPagamentoOrigem.objects.filter(ativo=True).values_list(
+            "tipo_documento", "id_forma_origem"
         )
+    }
+    mapeamentos_ativos = {
+        (str(item.tipo_documento).strip().upper(), int(item.id_forma_origem)): item.forma_pagamento
+        for item in FormaPagamentoMapeamento.objects.select_related("forma_pagamento").filter(ativo=True)
+    }
+
+    clientes_padrao = list(Cliente.objects.filter(cliente_padrao=True).order_by("id_cliente")[:2])
+    if len(clientes_padrao) > 1:
+        raise ValueError("Consolidacao bloqueada: existe mais de um cliente padrao configurado.")
+    cliente_padrao = clientes_padrao[0] if clientes_padrao else None
+
+    erros_precheck: list[str] = []
+    preparadas: list[dict[str, Any]] = []
+
+    for stg_venda in candidatas:
+        prefixo = f"{stg_venda.tipo_documento}#{stg_venda.id_legado}"
+        erros_venda: list[str] = []
+
+        itens = itens_por_venda.get(stg_venda.pk, [])
+        pagamentos = pagamentos_por_venda.get(stg_venda.pk, [])
+        if not itens or not pagamentos:
+            erros_venda.append(f"{prefixo}: venda_sem_itens_ou_pagamentos")
+
+        usuario = None
+        if stg_venda.id_usuario_legado is None:
+            erros_venda.append(f"{prefixo}: usuario_legado_ausente")
+        else:
+            usuario = usuarios_por_id.get(int(stg_venda.id_usuario_legado))
+            if usuario is None:
+                erros_venda.append(
+                    f"{prefixo}: usuario_legado_nao_encontrado (id={stg_venda.id_usuario_legado})"
+                )
+            else:
+                nome_stg = _normalize_identity_text(stg_venda.nome_usuario_legado)
+                nome_sot = _normalize_identity_text(usuario.nome)
+                if nome_stg and nome_sot and nome_stg != nome_sot:
+                    erros_venda.append(
+                        f"{prefixo}: usuario_nome_divergente (stg='{stg_venda.nome_usuario_legado}', sot='{usuario.nome}')"
+                    )
 
         cliente = None
-        if stg_venda.id_cliente_legado is not None:
-            cliente = Cliente.objects.filter(id_cliente=stg_venda.id_cliente_legado).first()
+        if stg_venda.id_cliente_legado in (None, 0):
+            if cliente_padrao is None:
+                erros_venda.append(
+                    f"{prefixo}: cliente_legado_zero_sem_cliente_padrao_configurado"
+                )
+            else:
+                cliente = cliente_padrao
+        else:
+            cliente = clientes_por_id.get(int(stg_venda.id_cliente_legado))
+            if cliente is None:
+                erros_venda.append(
+                    f"{prefixo}: cliente_nao_encontrado (id={stg_venda.id_cliente_legado})"
+                )
+            else:
+                nome_stg = _normalize_identity_text(stg_venda.nome_cliente_legado)
+                nome_sot = _normalize_identity_text(cliente.nome_cliente)
+                if nome_stg and nome_sot and nome_stg != nome_sot:
+                    erros_venda.append(
+                        f"{prefixo}: cliente_nome_divergente (stg='{stg_venda.nome_cliente_legado}', sot='{cliente.nome_cliente}')"
+                    )
 
-        with transaction.atomic():
+        itens_convertidos: list[tuple[STG_ItemVenda, Produto, UnidadeMedida]] = []
+        for item in itens:
+            if item.id_produto_legado is None:
+                erros_venda.append(f"{prefixo}: item_sem_id_produto")
+                continue
+
+            produto = produtos_por_id.get(int(item.id_produto_legado))
+            if produto is None:
+                erros_venda.append(
+                    f"{prefixo}: produto_nao_encontrado (id={item.id_produto_legado})"
+                )
+                continue
+
+            nome_stg = _normalize_identity_text(item.nome_produto_legado)
+            nome_sot = _normalize_identity_text(produto.produto)
+            if nome_stg and nome_sot and nome_stg != nome_sot:
+                erros_venda.append(
+                    f"{prefixo}: produto_nome_divergente (id={item.id_produto_legado}, stg='{item.nome_produto_legado}', sot='{produto.produto}')"
+                )
+                continue
+
+            unidade = _resolver_unidade_legado(
+                unidade_legado=item.unidade_comercial_legado,
+                unidades_por_sigla=unidades_por_sigla,
+            )
+            if unidade is None:
+                erros_venda.append(
+                    f"{prefixo}: unidade_legado_sem_mapeamento (valor='{item.unidade_comercial_legado}')"
+                )
+                continue
+
+            itens_convertidos.append((item, produto, unidade))
+
+        pagamentos_convertidos: list[tuple[FormaPagamento, STG_PagamentoVenda]] = []
+        for pg in pagamentos:
+            if pg.id_tipo_pagamento_legado is None:
+                erros_venda.append(f"{prefixo}: pagamento_sem_id_forma_origem")
+                continue
+
+            chave = (stg_venda.tipo_documento, int(pg.id_tipo_pagamento_legado))
+            if chave not in formas_origem_validas:
+                erros_venda.append(
+                    f"{prefixo}: forma_origem_nao_cadastrada (tipo={stg_venda.tipo_documento}, id_origem={pg.id_tipo_pagamento_legado})"
+                )
+                continue
+
+            forma = mapeamentos_ativos.get(chave)
+            if forma is None:
+                erros_venda.append(
+                    f"{prefixo}: mapeamento_forma_ausente (tipo={stg_venda.tipo_documento}, id_origem={pg.id_tipo_pagamento_legado})"
+                )
+                continue
+
+            pagamentos_convertidos.append((forma, pg))
+
+        if erros_venda:
+            erros_precheck.extend(erros_venda)
+            continue
+
+        preparadas.append(
+            {
+                "stg_venda": stg_venda,
+                "cliente": cliente,
+                "usuario": usuario,
+                "itens": itens_convertidos,
+                "pagamentos": pagamentos_convertidos,
+            }
+        )
+
+    if erros_precheck:
+        raise ValueError(_formatar_erros_precheck(erros_precheck))
+
+    inseridas = 0
+    momento_consolidacao = timezone.now()
+    with transaction.atomic():
+        for item_venda in preparadas:
+            stg_venda = item_venda["stg_venda"]
             venda = Venda.objects.create(
                 id_legado=stg_venda.id_legado,
                 tipo_documento=stg_venda.tipo_documento,
                 data_venda=stg_venda.data_venda,
                 hora_venda=stg_venda.hora_venda,
-                cliente=cliente,
-                usuario=usuario,
+                status=stg_venda.status_venda or "",
+                cliente=item_venda["cliente"],
+                usuario=item_venda["usuario"],
                 valor_total_documento=stg_venda.valor_final or Decimal("0"),
+                momento_consolidacao=momento_consolidacao,
             )
 
             ItemVenda.objects.bulk_create(
                 [
                     ItemVenda(
                         venda=venda,
-                        produto=produto_map[item.id_produto_legado],
-                        quantidade=item.quantidade or Decimal("0"),
-                        valor_unitario=item.valor_unitario or Decimal("0"),
-                        valor_total_item=item.valor_total_calculado or Decimal("0"),
-                        cancelado=item.cancelado,
+                        produto=produto,
+                        unidade_medida=unidade,
+                        quantidade=stg_item.quantidade or Decimal("0"),
+                        valor_unitario=stg_item.valor_unitario or Decimal("0"),
+                        valor_total_item=stg_item.valor_total_calculado or Decimal("0"),
+                        cancelado=stg_item.cancelado,
                     )
-                    for item in itens
+                    for stg_item, produto, unidade in item_venda["itens"]
                 ],
                 batch_size=2000,
             )
@@ -1163,17 +1480,26 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
                         venda=venda,
                         forma_pagamento=forma,
                         valor_pago=pg.valor_pago or Decimal("0"),
+                        estorno=bool(pg.estorno),
                     )
-                    for forma, pg in pagamentos_convertidos
+                    for forma, pg in item_venda["pagamentos"]
                 ],
                 batch_size=2000,
             )
 
-        inseridas += 1
+            inseridas += 1
+
+        stg_vendas_removidas = STG_Venda.objects.count()
+        stg_auditoria_removidas = STG_AuditoriaPlanilha.objects.count()
+        STG_Venda.objects.all().delete()
+        STG_AuditoriaPlanilha.objects.all().delete()
 
     return {
         "vendas_inseridas": inseridas,
         "vendas_ignoradas_duplicadas": ignoradas_duplicadas,
-        "vendas_ignoradas_incompletas": ignoradas_incompletas,
-        "detalhes_ignorados": detalhes_ignorados[:300],
+        "vendas_ignoradas_incompletas": 0,
+        "detalhes_ignorados": [],
+        "momento_consolidacao": momento_consolidacao.isoformat(),
+        "stg_vendas_removidas": stg_vendas_removidas,
+        "stg_auditoria_removidas": stg_auditoria_removidas,
     }

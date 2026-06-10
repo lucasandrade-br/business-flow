@@ -55,6 +55,6 @@ def gerar_hash_fornecedor(id_fornecedor: Any, nome_fornecedor: Any, raz_social: 
         _normalize_string(id_fornecedor),
         _normalize_string(nome_fornecedor),
         _normalize_string(raz_social),
-        _normalize_string(dt_cadastro),
+        #_normalize_string(dt_cadastro),
     ]
     return _build_md5(parts)

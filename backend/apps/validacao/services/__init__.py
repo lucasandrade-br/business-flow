@@ -1,7 +1,9 @@
 from apps.validacao.services_legacy import (
+    aplicar_tratamento_pendencias_lote,
     aprovar_cliente_novo,
     aprovar_fornecedor_novo,
     aprovar_produto_novo,
+    contar_pendencias_validacao,
     listar_clientes_pendentes,
     listar_fornecedores_pendentes,
     listar_produtos_pendentes,
@@ -19,9 +21,11 @@ from apps.validacao.services.auditoria_planilha import (
 )
 
 __all__ = [
+    "aplicar_tratamento_pendencias_lote",
     "aprovar_cliente_novo",
     "aprovar_fornecedor_novo",
     "aprovar_produto_novo",
+    "contar_pendencias_validacao",
     "listar_clientes_pendentes",
     "listar_fornecedores_pendentes",
     "listar_produtos_pendentes",

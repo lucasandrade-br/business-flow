@@ -29,6 +29,65 @@ def _contains_search(haystacks: list[Any], search: str) -> bool:
     return any(termo in str(valor or "").lower() for valor in haystacks)
 
 
+def _is_pendente_por_hash(*, stg_hash: str | None, sot_hash: str | None) -> bool:
+    return sot_hash is None or (stg_hash or "") != (sot_hash or "")
+
+
+def contar_produtos_pendentes_validacao() -> int:
+    stg_items = list(StgProdutosNovos.objects.values_list("id_produto", "hash_md5"))
+    if not stg_items:
+        return 0
+
+    produto_ids = [item_id for item_id, _ in stg_items]
+    sot_hashes = dict(Produto.objects.filter(id_produto__in=produto_ids).values_list("id_produto", "hash_md5"))
+
+    return sum(
+        1
+        for item_id, stg_hash in stg_items
+        if _is_pendente_por_hash(stg_hash=stg_hash, sot_hash=sot_hashes.get(item_id))
+    )
+
+
+def contar_clientes_pendentes_validacao() -> int:
+    stg_items = list(StgClientesNovos.objects.values_list("id_cliente", "hash_md5"))
+    if not stg_items:
+        return 0
+
+    cliente_ids = [item_id for item_id, _ in stg_items]
+    sot_hashes = dict(Cliente.objects.filter(id_cliente__in=cliente_ids).values_list("id_cliente", "hash_md5"))
+
+    return sum(
+        1
+        for item_id, stg_hash in stg_items
+        if _is_pendente_por_hash(stg_hash=stg_hash, sot_hash=sot_hashes.get(item_id))
+    )
+
+
+def contar_fornecedores_pendentes_validacao() -> int:
+    stg_items = list(StgFornecedoresNovos.objects.values_list("id_fornecedor", "hash_md5"))
+    if not stg_items:
+        return 0
+
+    fornecedor_ids = [item_id for item_id, _ in stg_items]
+    sot_hashes = dict(
+        Fornecedor.objects.filter(id_fornecedor__in=fornecedor_ids).values_list("id_fornecedor", "hash_md5")
+    )
+
+    return sum(
+        1
+        for item_id, stg_hash in stg_items
+        if _is_pendente_por_hash(stg_hash=stg_hash, sot_hash=sot_hashes.get(item_id))
+    )
+
+
+def contar_pendencias_validacao() -> dict[str, int]:
+    return {
+        "produtos": contar_produtos_pendentes_validacao(),
+        "clientes": contar_clientes_pendentes_validacao(),
+        "fornecedores": contar_fornecedores_pendentes_validacao(),
+    }
+
+
 def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
     try:
         pendentes = list(StgProdutosNovos.objects.all().order_by("id_produto"))
@@ -69,6 +128,8 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
                 if produto_sot is not None:
                     dados_sot = {
                         "nome": produto_sot.produto,
+                        "gtin": produto_sot.gtin,
+                        "barras": produto_sot.barras,
                         "custo": produto_sot.custo,
                         "valor_venda": produto_sot.venda,
                         "status": produto_sot.status,
@@ -370,3 +431,136 @@ def aprovar_fornecedor_novo(dados_validados: dict[str, Any]) -> None:
     except Exception:
         logger.exception("Falha ao aprovar fornecedor %s.", dados_validados.get("id_fornecedor"))
         raise
+
+
+def aplicar_tratamento_pendencias_lote(*, entidade: str, acao: str, ids: list[int]) -> dict[str, Any]:
+    entidade_norm = str(entidade or "").strip().lower()
+    acao_norm = str(acao or "").strip().lower()
+
+    if entidade_norm not in {"produtos", "clientes", "fornecedores"}:
+        raise ValueError("entidade invalida. Use produtos, clientes ou fornecedores.")
+    if acao_norm not in {"validar", "negligenciar"}:
+        raise ValueError("acao invalida. Use validar ou negligenciar.")
+
+    ids_norm = sorted({int(raw_id) for raw_id in ids if str(raw_id).strip()})
+    if not ids_norm:
+        raise ValueError("Informe ao menos um ID para tratamento em lote.")
+
+    falhas: list[dict[str, Any]] = []
+    processados = 0
+
+    if acao_norm == "negligenciar":
+        if entidade_norm == "produtos":
+            deletados, _ = StgProdutosNovos.objects.filter(id_produto__in=ids_norm).delete()
+        elif entidade_norm == "clientes":
+            deletados, _ = StgClientesNovos.objects.filter(id_cliente__in=ids_norm).delete()
+        else:
+            deletados, _ = StgFornecedoresNovos.objects.filter(id_fornecedor__in=ids_norm).delete()
+
+        return {
+            "detail": f"Tratamento em lote concluido para {entidade_norm}.",
+            "entidade": entidade_norm,
+            "acao": acao_norm,
+            "processados": int(deletados),
+            "falhas": falhas,
+        }
+
+    for item_id in ids_norm:
+        try:
+            if entidade_norm == "produtos":
+                pendente = StgProdutosNovos.objects.filter(id_produto=item_id).first()
+                if pendente is None:
+                    raise ValueError("produto pendente nao encontrado")
+
+                produto_sot = (
+                    Produto.objects.select_related("id_und_medida")
+                    .prefetch_related("categorias")
+                    .filter(id_produto=item_id)
+                    .first()
+                )
+
+                unidade_id = None
+                sigla = str(pendente.unidade_comecial or "").strip().upper()
+                if sigla:
+                    unidade, _ = UnidadeMedida.objects.get_or_create(sigla=sigla, defaults={"descricao": sigla})
+                    unidade_id = unidade.id_und_medida
+                elif produto_sot and produto_sot.id_und_medida_id is not None:
+                    unidade_id = int(produto_sot.id_und_medida_id)
+
+                if unidade_id is None:
+                    raise ValueError("unidade de medida nao identificada")
+
+                categorias_ids: list[int] = []
+                if produto_sot is not None:
+                    categorias_ids = list(produto_sot.categorias.values_list("id_conta", flat=True))
+
+                aprovar_produto_novo(
+                    {
+                        "id_produto": pendente.id_produto,
+                        "nome": pendente.nome,
+                        "gtin": pendente.gtin,
+                        "barras": pendente.barras,
+                        "status": pendente.status or (produto_sot.status if produto_sot else "ATIVO"),
+                        "ult_mov": pendente.dt_ultimo_movimento,
+                        "custo": pendente.custo,
+                        "valor_venda": pendente.valor_venda,
+                        "id_und_medida": unidade_id,
+                        "markup": produto_sot.markup if produto_sot else 0,
+                        "markup_inv": produto_sot.markup_inv if produto_sot else 0,
+                        "perda": produto_sot.perda if produto_sot else 0,
+                        "categorias_ids": categorias_ids,
+                        "fisico": produto_sot.fisico if produto_sot else 0,
+                        "aliqefc": produto_sot.aliqefc if produto_sot else "",
+                        "cod_g3n": produto_sot.cod_g3n if produto_sot else 0,
+                        "cod_rel": produto_sot.cod_rel if produto_sot else 0,
+                        "usuario": produto_sot.usuario if produto_sot else "",
+                    }
+                )
+
+            elif entidade_norm == "clientes":
+                pendente = StgClientesNovos.objects.filter(id_cliente=item_id).first()
+                if pendente is None:
+                    raise ValueError("cliente pendente nao encontrado")
+
+                cliente_sot = Cliente.objects.filter(id_cliente=item_id).first()
+                aprovar_cliente_novo(
+                    {
+                        "id_cliente": pendente.id_cliente,
+                        "nome_cliente": pendente.cliente,
+                        "raz_social": pendente.raz_social,
+                        "prazo_cob": cliente_sot.prazo_cob if cliente_sot else 0,
+                        "id_grupo": cliente_sot.id_grupo_id if cliente_sot else None,
+                        "id_tipo_venda": cliente_sot.id_tipo_venda_id if cliente_sot else None,
+                    }
+                )
+
+            else:
+                pendente = StgFornecedoresNovos.objects.filter(id_fornecedor=item_id).first()
+                if pendente is None:
+                    raise ValueError("fornecedor pendente nao encontrado")
+
+                fornecedor_sot = Fornecedor.objects.filter(id_fornecedor=item_id).first()
+                aprovar_fornecedor_novo(
+                    {
+                        "id_fornecedor": pendente.id_fornecedor,
+                        "nome_fornecedor": pendente.fantasia,
+                        "raz_social": pendente.raz_social,
+                        "dt_cadastro": pendente.dt_cadastro or (fornecedor_sot.dt_cadastro if fornecedor_sot else date.today()),
+                        "id_codsis": fornecedor_sot.id_codsis_id if fornecedor_sot else None,
+                        "codigo": fornecedor_sot.codigo if fornecedor_sot else "",
+                        "operador": fornecedor_sot.operador if fornecedor_sot else 0,
+                        "usuario": fornecedor_sot.usuario if fornecedor_sot else "",
+                    }
+                )
+
+            processados += 1
+        except Exception as exc:
+            falhas.append({"id": item_id, "erro": str(exc)})
+
+    return {
+        "detail": f"Tratamento em lote concluido para {entidade_norm}.",
+        "entidade": entidade_norm,
+        "acao": acao_norm,
+        "processados": processados,
+        "falhas": falhas[:100],
+    }

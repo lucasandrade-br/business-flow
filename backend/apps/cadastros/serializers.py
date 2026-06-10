@@ -9,6 +9,8 @@ from .models import (
     Cliente,
     CodSis,
     FormaPagamento,
+    FormaPagamentoMapeamento,
+    FormaPagamentoOrigem,
     Fornecedor,
     GrupoCliente,
     PlanoConta,
@@ -123,6 +125,76 @@ class FormaPagamentoSerializer(serializers.ModelSerializer):
         fields = ["id_forma", "descricao"]
 
 
+class FormaPagamentoOrigemSerializer(serializers.ModelSerializer):
+    TIPOS_VALIDOS = {"NFCE", "DAV", "NFE"}
+
+    class Meta:
+        model = FormaPagamentoOrigem
+        fields = [
+            "id_origem",
+            "tipo_documento",
+            "id_forma_origem",
+            "descricao_origem",
+            "ativo",
+        ]
+
+    def validate_tipo_documento(self, value):
+        normalized = str(value or "").strip().upper()
+        if normalized not in self.TIPOS_VALIDOS:
+            raise serializers.ValidationError("tipo_documento invalido. Use NFCE, DAV ou NFE.")
+        return normalized
+
+
+class FormaPagamentoMapeamentoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FormaPagamentoMapeamento
+        fields = [
+            "id_mapeamento",
+            "forma_pagamento",
+            "tipo_documento",
+            "id_forma_origem",
+            "descricao_origem",
+            "ativo",
+        ]
+
+
+class FormaPagamentoMapeamentoLoteSerializer(serializers.Serializer):
+    adicionar = serializers.ListField(child=serializers.DictField(), required=False, allow_empty=True)
+    remover = serializers.ListField(child=serializers.DictField(), required=False, allow_empty=True)
+
+    def validate(self, attrs):
+        def _normalize(items):
+            normalized = []
+            for item in items or []:
+                tipo_documento = str(item.get("tipo_documento") or "").strip().upper()
+                id_forma_origem_raw = item.get("id_forma_origem")
+                if not tipo_documento or id_forma_origem_raw in (None, ""):
+                    continue
+                try:
+                    id_forma_origem = int(id_forma_origem_raw)
+                except (TypeError, ValueError):
+                    continue
+
+                normalized.append(
+                    {
+                        "tipo_documento": tipo_documento,
+                        "id_forma_origem": id_forma_origem,
+                        "descricao_origem": str(item.get("descricao_origem") or "").strip(),
+                    }
+                )
+            return normalized
+
+        adicionar = _normalize(attrs.get("adicionar") or [])
+        remover = _normalize(attrs.get("remover") or [])
+
+        if not adicionar and not remover:
+            raise serializers.ValidationError("Informe ao menos um item para adicionar ou remover.")
+
+        attrs["adicionar"] = adicionar
+        attrs["remover"] = remover
+        return attrs
+
+
 class FornecedorSerializer(serializers.ModelSerializer):
     id_codsis = serializers.IntegerField(required=False, allow_null=True, source="id_codsis_id")
 
@@ -178,6 +250,7 @@ class ClienteSerializer(serializers.ModelSerializer):
             "nome_cliente",
             "raz_social",
             "prazo_cob",
+            "cliente_padrao",
             "id_grupo",
             "id_tipo_venda",
         ]
@@ -201,12 +274,22 @@ class TemplateExportacaoSerializer(serializers.ModelSerializer):
 
 
 class ExportacaoRequestSerializer(serializers.Serializer):
-    tabela = serializers.ChoiceField(choices=["produtos", "clientes", "fornecedores"])
+    tabela = serializers.ChoiceField(
+        choices=[
+            "produtos",
+            "clientes",
+            "fornecedores",
+            "vendas",
+            "itens_venda",
+            "pagamentos_venda",
+        ]
+    )
     tipo = serializers.ChoiceField(choices=["BASICO", "SQL"], default="BASICO", required=False)
     colunas = serializers.ListField(child=serializers.CharField(), required=False, allow_empty=True)
     query_sql = serializers.CharField(required=False, allow_blank=True)
     formato = serializers.ChoiceField(choices=["csv", "xlsx", "pdf"])
     search = serializers.CharField(required=False, allow_blank=True)
+    filtros = serializers.JSONField(required=False)
 
     def validate(self, attrs):
         tipo = attrs.get("tipo", "BASICO")

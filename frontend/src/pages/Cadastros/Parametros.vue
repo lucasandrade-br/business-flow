@@ -47,6 +47,22 @@
             />
           </div>
           <button
+            v-if="current.key === 'formas_pagamento'"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            @click="openOrigens"
+          >
+            Gerenciar Origens
+          </button>
+          <button
+            v-if="current.key === 'formas_pagamento'"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            @click="openMapeamentos"
+          >
+            Gerenciar Mapeamentos
+          </button>
+          <button
             v-if="current.key !== 'templates_exportacao'"
             type="button"
             class="inline-flex items-center gap-1 rounded-md bg-black px-3 py-2 text-xs font-medium text-white hover:bg-gray-800"
@@ -93,6 +109,18 @@
       submit-label="Salvar"
       @submit="save"
     />
+
+    <ModalGerenciarMapeamentosForma
+      v-model="showMapeamentosModal"
+      :formas-options="formasPagamentoOptions"
+      :loading="savingMapeamentos"
+      :error="mapeamentosError"
+      @submit="applyMapeamentos"
+    />
+
+    <ModalGerenciarOrigensForma
+      v-model="showOrigensModal"
+    />
   </section>
 </template>
 
@@ -100,6 +128,8 @@
 import { computed, onMounted, ref } from "vue";
 import { Pencil, Plus, Search, Trash2 } from "lucide-vue-next";
 import BaseFormModal from "@/components/ui/BaseFormModal.vue";
+import ModalGerenciarMapeamentosForma from "@/components/ui/ModalGerenciarMapeamentosForma.vue";
+import ModalGerenciarOrigensForma from "@/components/ui/ModalGerenciarOrigensForma.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -218,6 +248,11 @@ const showModal = ref(false);
 const saving = ref(false);
 const modalError = ref("");
 const editing = ref(null);
+const showMapeamentosModal = ref(false);
+const showOrigensModal = ref(false);
+const savingMapeamentos = ref(false);
+const mapeamentosError = ref("");
+const formasPagamentoOptions = ref([]);
 
 const current = computed(() => tabs.find((tab) => tab.key === activeTab.value) || tabs[0]);
 
@@ -263,6 +298,31 @@ async function load(url = current.value.endpoint) {
   }
 }
 
+async function loadFormasPagamentoOptions() {
+  const options = [];
+  let nextUrl = `${API_BASE_URL}/api/cadastros/formas-pagamento`;
+
+  while (nextUrl) {
+    const response = await fetch(nextUrl);
+    if (!response.ok) throw new Error(`Erro ${response.status}`);
+
+    const data = await response.json();
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        options.push({ value: Number(item.id_forma), label: `${item.id_forma} - ${item.descricao}` });
+      }
+      nextUrl = "";
+    } else {
+      for (const item of data.results || []) {
+        options.push({ value: Number(item.id_forma), label: `${item.id_forma} - ${item.descricao}` });
+      }
+      nextUrl = data.next || "";
+    }
+  }
+
+  formasPagamentoOptions.value = options;
+}
+
 function goNext() {
   if (next.value) load(next.value);
 }
@@ -289,6 +349,21 @@ function openCreate() {
   editing.value = null;
   modalError.value = "";
   showModal.value = true;
+}
+
+async function openMapeamentos() {
+  mapeamentosError.value = "";
+  try {
+    await loadFormasPagamentoOptions();
+    showMapeamentosModal.value = true;
+  } catch (err) {
+    console.error(err);
+    error.value = "Falha ao carregar formas de pagamento para mapeamento.";
+  }
+}
+
+function openOrigens() {
+  showOrigensModal.value = true;
 }
 
 function openEdit(row) {
@@ -384,6 +459,32 @@ async function remove(row) {
   } catch (err) {
     console.error(err);
     error.value = "Falha ao excluir parâmetro.";
+  }
+}
+
+async function applyMapeamentos(payload) {
+  savingMapeamentos.value = true;
+  mapeamentosError.value = "";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/cadastros/formas-pagamento/${payload.id_forma}/mapeamentos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        adicionar: payload.adicionar,
+        remover: payload.remover,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    showMapeamentosModal.value = false;
+  } catch (err) {
+    console.error(err);
+    mapeamentosError.value = "Falha ao aplicar mapeamentos.";
+  } finally {
+    savingMapeamentos.value = false;
   }
 }
 
