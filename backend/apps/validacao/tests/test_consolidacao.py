@@ -219,3 +219,195 @@ def test_consolidacao_bloqueia_quando_existem_pendencias_de_cadastro() -> None:
 
     with pytest.raises(ValueError, match="pendencias de cadastro"):
         consolidar_stg_para_sot()
+
+
+@pytest.mark.django_db
+def test_consolidacao_permite_produto_com_nome_semelhante() -> None:
+    unidade = UnidadeMedida.objects.create(sigla="UN", descricao="Unidade")
+    Produto.objects.create(
+        id_produto=1201,
+        gtin="",
+        barras="",
+        produto="SALGADO BAURU QUEIJO COM FRANGO",
+        id_und_medida=unidade,
+        custo=Decimal("10.000000"),
+        venda=Decimal("12.000000"),
+        status="ATIVO",
+        markup=Decimal("0.0000"),
+        markup_inv=Decimal("0.0000"),
+        perda=Decimal("0.0000"),
+        fisico=Decimal("0.0000"),
+        aliqefc="",
+        cod_g3n=0,
+        cod_rel=0,
+        usuario="",
+    )
+
+    usuario = Usuario.objects.create(id_usuario=5, nome="Operador Principal")
+    cliente = Cliente.objects.create(
+        id_cliente=321,
+        nome_cliente="Cliente Teste",
+        raz_social="Cliente Teste LTDA",
+        prazo_cob=0,
+        cliente_padrao=False,
+    )
+
+    forma = FormaPagamento.objects.create(id_forma=10, descricao="Dinheiro")
+    FormaPagamentoOrigem.objects.create(
+        tipo_documento="DAV",
+        id_forma_origem=1,
+        descricao_origem="Dinheiro",
+        ativo=True,
+    )
+    FormaPagamentoMapeamento.objects.create(
+        forma_pagamento=forma,
+        tipo_documento="DAV",
+        id_forma_origem=1,
+        descricao_origem="Dinheiro",
+        ativo=True,
+    )
+
+    venda_stg = STG_Venda.objects.create(
+        tipo_documento="DAV",
+        id_legado=1008742,
+        status_venda="F",
+        data_venda=date(2026, 1, 10),
+        id_cliente_legado=cliente.id_cliente,
+        nome_cliente_legado=cliente.nome_cliente,
+        id_usuario_legado=usuario.id_usuario,
+        nome_usuario_legado=usuario.nome,
+        valor_final=Decimal("25.000000"),
+        status_validacao=STG_Venda.STATUS_APROVADO,
+        status_tratamento=STG_Venda.TRATAMENTO_VALIDADO,
+    )
+
+    STG_ItemVenda.objects.create(
+        stg_venda=venda_stg,
+        tipo_documento="DAV",
+        id_venda_legado=venda_stg.id_legado,
+        status_venda="F",
+        data_venda=venda_stg.data_venda,
+        id_cliente_legado=cliente.id_cliente,
+        nome_cliente_legado=cliente.nome_cliente,
+        id_produto_legado=1201,
+        nome_produto_legado="SALGADO BAURU DE QUEIJO C/ FRANGO UND",
+        unidade_comercial_legado="UN",
+        valor_unitario=Decimal("25.000000"),
+        quantidade=Decimal("1.000000"),
+        valor_total_calculado=Decimal("25.000000"),
+        cancelado=False,
+    )
+
+    STG_PagamentoVenda.objects.create(
+        stg_venda=venda_stg,
+        tipo_documento="DAV",
+        id_venda_legado=venda_stg.id_legado,
+        id_tipo_pagamento_legado=1,
+        tipo_pagamento_descricao_legado="Dinheiro",
+        valor_pago=Decimal("25.000000"),
+        estorno=False,
+    )
+
+    STG_AuditoriaPlanilha.objects.create(
+        tipo_documento="DAV",
+        id_legado=venda_stg.id_legado,
+        data_venda=venda_stg.data_venda,
+        hora_venda=venda_stg.hora_venda,
+        usuario_nome=usuario.nome,
+        cliente_nome=cliente.nome_cliente,
+        valor_total=Decimal("25.000000"),
+        tipo_pagamento_descricao="Dinheiro",
+    )
+
+    resultado = consolidar_stg_para_sot()
+
+    assert resultado["vendas_inseridas"] == 1
+    assert Venda.objects.filter(id_legado=1008742, tipo_documento="DAV").exists()
+
+
+@pytest.mark.django_db
+def test_consolidacao_permite_cliente_com_nome_semelhante() -> None:
+    unidade = UnidadeMedida.objects.create(sigla="UN", descricao="Unidade")
+    _criar_produto(777, unidade)
+
+    usuario = Usuario.objects.create(id_usuario=5, nome="Operador Principal")
+    cliente = Cliente.objects.create(
+        id_cliente=654,
+        nome_cliente="MERCADO SAO JOSE LTDA",
+        raz_social="MERCADO SAO JOSE LTDA",
+        prazo_cob=0,
+        cliente_padrao=False,
+    )
+
+    forma = FormaPagamento.objects.create(id_forma=10, descricao="Dinheiro")
+    FormaPagamentoOrigem.objects.create(
+        tipo_documento="NFCE",
+        id_forma_origem=1,
+        descricao_origem="Dinheiro",
+        ativo=True,
+    )
+    FormaPagamentoMapeamento.objects.create(
+        forma_pagamento=forma,
+        tipo_documento="NFCE",
+        id_forma_origem=1,
+        descricao_origem="Dinheiro",
+        ativo=True,
+    )
+
+    venda_stg = STG_Venda.objects.create(
+        tipo_documento="NFCE",
+        id_legado=889001,
+        status_venda="F",
+        data_venda=date(2026, 1, 20),
+        id_cliente_legado=cliente.id_cliente,
+        nome_cliente_legado="MERCADO SAO JOSE",
+        id_usuario_legado=usuario.id_usuario,
+        nome_usuario_legado=usuario.nome,
+        valor_final=Decimal("40.000000"),
+        status_validacao=STG_Venda.STATUS_APROVADO,
+        status_tratamento=STG_Venda.TRATAMENTO_VALIDADO,
+    )
+
+    STG_ItemVenda.objects.create(
+        stg_venda=venda_stg,
+        tipo_documento="NFCE",
+        id_venda_legado=venda_stg.id_legado,
+        status_venda="F",
+        data_venda=venda_stg.data_venda,
+        id_cliente_legado=cliente.id_cliente,
+        nome_cliente_legado=venda_stg.nome_cliente_legado,
+        id_produto_legado=777,
+        nome_produto_legado="Produto Teste",
+        unidade_comercial_legado="UN",
+        valor_unitario=Decimal("40.000000"),
+        quantidade=Decimal("1.000000"),
+        valor_total_calculado=Decimal("40.000000"),
+        cancelado=False,
+    )
+
+    STG_PagamentoVenda.objects.create(
+        stg_venda=venda_stg,
+        tipo_documento="NFCE",
+        id_venda_legado=venda_stg.id_legado,
+        id_tipo_pagamento_legado=1,
+        tipo_pagamento_descricao_legado="Dinheiro",
+        valor_pago=Decimal("40.000000"),
+        estorno=False,
+    )
+
+    STG_AuditoriaPlanilha.objects.create(
+        tipo_documento="NFCE",
+        id_legado=venda_stg.id_legado,
+        data_venda=venda_stg.data_venda,
+        hora_venda=venda_stg.hora_venda,
+        usuario_nome=usuario.nome,
+        cliente_nome=venda_stg.nome_cliente_legado,
+        valor_total=Decimal("40.000000"),
+        tipo_pagamento_descricao="Dinheiro",
+    )
+
+    resultado = consolidar_stg_para_sot()
+
+    assert resultado["vendas_inseridas"] == 1
+    venda = Venda.objects.get(id_legado=889001, tipo_documento="NFCE")
+    assert venda.cliente_id == cliente.id_cliente

@@ -70,12 +70,19 @@
       </div>
 
       <p v-if="uploadError" class="text-xs text-red-600">{{ uploadError }}</p>
+
+      <div
+        v-if="lastBloqueioResumo"
+        class="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+      >
+        {{ lastBloqueioResumo }}
+      </div>
     </article>
 
     <article v-if="hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4 space-y-3">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Resumo da Importação e Validação</h3>
-        <button type="button" class="rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50" @click="resetFluxo">
+        <button type="button" class="rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50" @click="abrirConfirmacaoNovaImportacao">
           Nova importação
         </button>
       </div>
@@ -170,6 +177,7 @@
         :columns="tableColumns"
         :rows="rows"
         row-key="row_key"
+        :row-class="rowHighlightClass"
         :selected-row-keys="selectedRows.map((row) => row.row_key)"
         :count="count"
         :next="next"
@@ -295,6 +303,13 @@
       </div>
 
       <p v-if="uploadError" class="text-xs text-red-600">{{ uploadError }}</p>
+
+      <div
+        v-if="lastBloqueioResumo"
+        class="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+      >
+        {{ lastBloqueioResumo }}
+      </div>
     </article>
 
     <BaseModal
@@ -399,6 +414,99 @@
       </template>
     </BaseModal>
 
+    <BaseModal
+      v-model="showBloqueioModal"
+      title="Bloqueios identificados"
+      :description="bloqueioModalDescricao"
+    >
+      <div class="space-y-3">
+        <div class="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+          {{ bloqueioModalMensagem }}
+        </div>
+
+        <div
+          v-if="bloqueioResumoPorCodigo.length"
+          class="flex flex-wrap gap-2"
+        >
+          <span
+            v-for="item in bloqueioResumoPorCodigo"
+            :key="item.codigo"
+            class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900"
+          >
+            {{ item.label }}: {{ item.total }}
+          </span>
+        </div>
+
+        <div class="max-h-72 overflow-auto rounded-md border border-gray-200">
+          <table class="min-w-full text-xs">
+            <thead>
+              <tr class="border-b border-gray-100 bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
+                <th class="px-3 py-2">Venda</th>
+                <th class="px-3 py-2">Codigos</th>
+                <th class="px-3 py-2">Erros</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, idx) in bloqueioModalItems" :key="`${item.venda || 'SEM-VENDA'}-${idx}`" class="border-b border-gray-100 align-top">
+                <td class="px-3 py-2 font-semibold text-[#373435]">{{ item.venda || '-' }}</td>
+                <td class="px-3 py-2 text-gray-700">{{ formatarCodigosBloqueio(item.codigos) }}</td>
+                <td class="px-3 py-2 text-gray-700">
+                  <ul class="list-disc pl-4 space-y-1">
+                    <li v-for="(erro, eidx) in (item.erros || [])" :key="`${idx}-${eidx}`">{{ erro }}</li>
+                  </ul>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <template #footer>
+        <button
+          type="button"
+          class="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          :disabled="bloqueioModalRunning"
+          @click="cancelarBloqueioModal"
+        >
+          Cancelar
+        </button>
+        <button
+          v-if="bloqueioModalPodeProsseguir"
+          type="button"
+          class="rounded-md bg-[#1f4f8a] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#193f6e] disabled:opacity-60"
+          :disabled="bloqueioModalRunning"
+          @click="prosseguirBloqueioModal"
+        >
+          {{ bloqueioModalRunning ? 'Processando...' : 'Prosseguir mesmo assim' }}
+        </button>
+      </template>
+    </BaseModal>
+
+    <BaseModal
+      v-model="showNovaImportacaoModal"
+      title="Nova importação"
+      description="Isso apagará os dados temporários atuais de reconciliação (STG e auditoria). Deseja continuar?"
+    >
+      <template #footer>
+        <button
+          type="button"
+          class="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          :disabled="resettingFluxo"
+          @click="showNovaImportacaoModal = false"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          class="rounded-md bg-[#a82631] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#901f29] disabled:opacity-60"
+          :disabled="resettingFluxo"
+          @click="confirmarNovaImportacao"
+        >
+          {{ resettingFluxo ? 'Limpando...' : 'Confirmar e Limpar' }}
+        </button>
+      </template>
+    </BaseModal>
+
     <transition
       enter-active-class="transition duration-200 ease-out"
       enter-from-class="translate-y-2 opacity-0"
@@ -421,8 +529,39 @@ import BaseInput from "@/components/ui/BaseInput.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 import ModalAjusteVendaStg from "@/pages/Validacao/ModalAjusteVendaStg.vue";
+import { executarSincronizacaoFirebird, formatarErroSincronizacao, getApiBaseUrl } from "@/services/firebirdSync";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = getApiBaseUrl();
+const STATUS_TRATAMENTO_VALIDADO = "VALIDADO";
+const STATUS_TRATAMENTO_NEGLIGENCIADO = "NEGLIGENCIADO";
+const MOTIVO_DUPLICADO_SOT = "duplicado_sot";
+
+const LABELS_CODIGO_BLOQUEIO = {
+  divergencia_formato_pagamento: "Divergencia de formato de pagamento",
+  venda_sem_itens_ou_pagamentos: "Venda sem itens ou pagamentos",
+  pagamento_sem_id_forma_origem: "Pagamento sem forma de origem",
+  forma_origem_nao_cadastrada: "Forma de origem nao cadastrada",
+  mapeamento_forma_ausente: "Mapeamento de forma ausente",
+  cliente_nao_encontrado: "Cliente nao encontrado",
+  cliente_nome_divergente: "Nome de cliente divergente",
+  cliente_legado_zero_sem_cliente_padrao_configurado: "Cliente padrao nao configurado",
+  usuario_legado_ausente: "Usuario legado ausente",
+  usuario_legado_nao_encontrado: "Usuario legado nao encontrado",
+  usuario_nome_divergente: "Nome de usuario divergente",
+  item_sem_id_produto: "Item sem produto",
+  produto_nao_encontrado: "Produto nao encontrado",
+  produto_nome_divergente: "Nome de produto divergente",
+  unidade_legado_sem_mapeamento: "Unidade sem mapeamento",
+  consolidacao_bloqueada_divergencia_reconciliacao: "Divergencia estrutural na reconciliacao",
+  consolidacao_bloqueada_precheck: "Inconsistencias estruturais de pre-check",
+  validacao_bloqueada_precheck: "Inconsistencias estruturais de validacao",
+};
+
+const MENSAGENS_AMIGAVEIS_BLOQUEIO = {
+  validacao_bloqueada_precheck: "Validacao bloqueada por inconsistencias estruturais.",
+  consolidacao_bloqueada_divergencia_reconciliacao: "Consolidacao bloqueada por divergencias estruturais na reconciliacao.",
+  consolidacao_bloqueada_precheck: "Consolidacao bloqueada por inconsistencias estruturais de pre-check.",
+};
 
 const showModal = ref(false);
 const submitting = ref(false);
@@ -485,10 +624,21 @@ const confirmRunning = ref(false);
 const confirmAction = ref("");
 const confirmScope = ref("");
 const confirmRow = ref(null);
+const showNovaImportacaoModal = ref(false);
+const resettingFluxo = ref(false);
 const formasPagamento = ref([]);
 const showEditLoteModal = ref(false);
 const editLoteFormaId = ref("");
 const editLoteRunning = ref(false);
+const showBloqueioModal = ref(false);
+const bloqueioModalRunning = ref(false);
+const bloqueioModalItems = ref([]);
+const bloqueioModalMensagem = ref("");
+const bloqueioModalCodigo = ref("");
+const bloqueioModalPodeProsseguir = ref(false);
+const bloqueioModalOrigem = ref("");
+const lastBloqueioResumo = ref("");
+const bloqueioModalConfirmAction = ref(null);
 
 const selectedMap = reactive({});
 
@@ -521,9 +671,6 @@ const consolidacaoBloqueios = computed(() => {
   if (Number(kpis.vendas_aprovadas || 0) <= 0) {
     motivos.push("Nao ha vendas aprovadas para consolidar.");
   }
-  if (Number(kpis.vendas_divergentes || 0) > 0) {
-    motivos.push("Existem divergencias pendentes na reconciliacao.");
-  }
   if (!resumoPendenciasDisponivel.value) {
     motivos.push("Nao foi possivel validar pendencias de cadastro no momento.");
   }
@@ -535,8 +682,7 @@ const consolidacaoBloqueios = computed(() => {
   return motivos;
 });
 const canConsolidar = computed(() => (
-  Number(kpis.vendas_divergentes || 0) === 0
-  && Number(kpis.vendas_aprovadas || 0) > 0
+  Number(kpis.vendas_aprovadas || 0) > 0
   && resumoPendenciasDisponivel.value
   && !hasPendenciasCadastro.value
 ));
@@ -549,6 +695,35 @@ const confirmDescription = computed(() => {
   }
   const verbo = confirmAction.value === "validar" ? "validar" : "negligenciar";
   return `Deseja realmente ${verbo} ${selectedRows.value.length} venda(s) selecionada(s)?`;
+});
+const bloqueioModalDescricao = computed(() => {
+  if (bloqueioModalOrigem.value === "validar_lote") {
+    return "As vendas abaixo foram bloqueadas durante a validacao em lote.";
+  }
+  if (bloqueioModalOrigem.value === "validar_linha") {
+    return "A venda selecionada foi bloqueada para validacao.";
+  }
+  if (bloqueioModalOrigem.value === "consolidar") {
+    return "A consolidacao encontrou vendas bloqueadas.";
+  }
+  return "Foram identificados bloqueios durante a operacao.";
+});
+const bloqueioResumoPorCodigo = computed(() => {
+  const acumulado = new Map();
+  for (const item of bloqueioModalItems.value || []) {
+    const codigosUnicos = new Set((item?.codigos || []).map((codigo) => String(codigo || "").trim()).filter(Boolean));
+    for (const codigo of codigosUnicos) {
+      acumulado.set(codigo, Number(acumulado.get(codigo) || 0) + 1);
+    }
+  }
+
+  return Array.from(acumulado.entries())
+    .map(([codigo, total]) => ({
+      codigo,
+      total,
+      label: formatarCodigoBloqueio(codigo),
+    }))
+    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
 });
 
 function asMoney(value) {
@@ -604,11 +779,118 @@ function formatCliente(value) {
   return text.length > 10 ? `${text.slice(0, 10)}..` : text;
 }
 
+function motivosDaLinha(row) {
+  return (row?.motivos || []).map((motivo) => String(motivo || "").trim().toLowerCase()).filter(Boolean);
+}
+
+function rowHighlightClass(row) {
+  const tratamento = String(row?.tratamento || "").trim().toUpperCase();
+  if (tratamento === STATUS_TRATAMENTO_VALIDADO) {
+    return "bg-[#d7fce1]";
+  }
+  if (tratamento === STATUS_TRATAMENTO_NEGLIGENCIADO) {
+    return "bg-[#fff5f6]";
+  }
+  if (motivosDaLinha(row).includes(MOTIVO_DUPLICADO_SOT)) {
+    return "bg-[#fff9db]";
+  }
+  return "";
+}
+
 function notify(message) {
   toast.value = message;
   setTimeout(() => {
     toast.value = "";
   }, 3000);
+}
+
+function parseApiErrorPayload(payload, statusCode) {
+  const codigo = String(payload?.codigo || "").trim();
+  const bloqueios = Array.isArray(payload?.bloqueios) ? payload.bloqueios : [];
+  const mensagemOriginal = String(payload?.detail || `Erro ${statusCode}`).trim();
+  const mensagemBase = MENSAGENS_AMIGAVEIS_BLOQUEIO[codigo] || mensagemOriginal;
+  const codigosEncontrados = new Set(
+    bloqueios.flatMap((item) => (item?.codigos || []).map((codigoItem) => String(codigoItem || "").trim()).filter(Boolean)),
+  );
+  const somenteFormato = codigosEncontrados.size === 1 && codigosEncontrados.has("divergencia_formato_pagamento");
+  const permiteOverride = Boolean(payload?.permite_override);
+
+  let mensagem = mensagemBase;
+  if (somenteFormato && permiteOverride) {
+    mensagem = `${mensagemBase} Foram encontradas divergencias somente de tipo de pagamento. Voce pode prosseguir agora ou cancelar para ajustar antes.`;
+  } else if (somenteFormato) {
+    mensagem = `${mensagemBase} Foram encontradas divergencias de tipo de pagamento que exigem ajuste previo.`;
+  }
+
+  return {
+    message: mensagem,
+    codigo,
+    bloqueios,
+    permiteOverride,
+  };
+}
+
+function resumirBloqueios(mensagem, bloqueios) {
+  const total = Array.isArray(bloqueios) ? bloqueios.length : 0;
+  if (!total) {
+    return mensagem || "Operacao bloqueada por inconsistencias.";
+  }
+  return `${mensagem || "Operacao bloqueada."} (${total} venda(s) com restricao)`;
+}
+
+function formatarCodigoBloqueio(codigo) {
+  const norm = String(codigo || "").trim();
+  return LABELS_CODIGO_BLOQUEIO[norm] || norm || "-";
+}
+
+function formatarCodigosBloqueio(codigos) {
+  const lista = (codigos || []).map((codigo) => formatarCodigoBloqueio(codigo));
+  return lista.length ? lista.join(", ") : "-";
+}
+
+function limparEstadoBloqueioModal() {
+  bloqueioModalItems.value = [];
+  bloqueioModalMensagem.value = "";
+  bloqueioModalCodigo.value = "";
+  bloqueioModalPodeProsseguir.value = false;
+  bloqueioModalOrigem.value = "";
+  bloqueioModalConfirmAction.value = null;
+  bloqueioModalRunning.value = false;
+}
+
+function abrirBloqueioModal({ origem, mensagem, codigo, bloqueios, permiteOverride, onConfirm }) {
+  bloqueioModalOrigem.value = origem || "";
+  bloqueioModalMensagem.value = mensagem || "Operacao bloqueada por inconsistencias estruturais.";
+  bloqueioModalCodigo.value = codigo || "";
+  bloqueioModalItems.value = Array.isArray(bloqueios) ? bloqueios : [];
+
+  const podeProsseguir = Boolean(permiteOverride && typeof onConfirm === "function");
+  bloqueioModalPodeProsseguir.value = podeProsseguir;
+  bloqueioModalConfirmAction.value = podeProsseguir ? onConfirm : null;
+  showBloqueioModal.value = true;
+}
+
+function cancelarBloqueioModal() {
+  showBloqueioModal.value = false;
+  limparEstadoBloqueioModal();
+}
+
+async function prosseguirBloqueioModal() {
+  if (!bloqueioModalConfirmAction.value) {
+    return;
+  }
+
+  bloqueioModalRunning.value = true;
+  try {
+    const executar = bloqueioModalConfirmAction.value;
+    showBloqueioModal.value = false;
+    await executar();
+  } catch (err) {
+    console.error(err);
+    uploadError.value = err?.message || "Falha ao prosseguir com override de bloqueio.";
+  } finally {
+    limparEstadoBloqueioModal();
+  }
 }
 
 function applyKpis(data) {
@@ -693,7 +975,7 @@ function stopPolling() {
   }
 }
 
-function resetFluxo() {
+function resetFluxoLocal() {
   stopPolling();
   clearSelectedFiles();
   clearSelection();
@@ -722,6 +1004,36 @@ function resetFluxo() {
   pendenciasResumo.clientes = 0;
   pendenciasResumo.fornecedores = 0;
   resumoPendenciasDisponivel.value = true;
+  lastBloqueioResumo.value = "";
+  cancelarBloqueioModal();
+}
+
+function abrirConfirmacaoNovaImportacao() {
+  showNovaImportacaoModal.value = true;
+}
+
+async function confirmarNovaImportacao() {
+  resettingFluxo.value = true;
+  uploadError.value = "";
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/validacao/reconciliacao/limpar-fluxo`, {
+      method: "POST",
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.detail || `Erro ${response.status}`);
+    }
+
+    resetFluxoLocal();
+    showNovaImportacaoModal.value = false;
+    notify("Fluxo anterior removido. Você pode iniciar uma nova importação.");
+  } catch (err) {
+    console.error(err);
+    uploadError.value = err?.message || "Falha ao reiniciar fluxo de importação.";
+  } finally {
+    resettingFluxo.value = false;
+  }
 }
 
 async function carregarResumoPendencias() {
@@ -817,7 +1129,8 @@ function goPrevious() {
   }
 }
 
-async function validarLinha(row) {
+async function validarLinha(row, options = {}) {
+  const forcarDivergenciaFormato = Boolean(options.forcarDivergenciaFormato);
   const response = await fetch(`${API_BASE_URL}/api/validacao/reconciliacao/divergencias/tratar`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -825,15 +1138,37 @@ async function validarLinha(row) {
       tipo_documento: row.tipo_documento,
       id_legado: row.id_legado,
       acao: "validar",
-      payload: {},
+      payload: {
+        forcar_divergencia_formato: forcarDivergenciaFormato,
+      },
     }),
   });
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.detail || `Erro ${response.status}`);
+    const erroApi = parseApiErrorPayload(payload, response.status);
+    lastBloqueioResumo.value = resumirBloqueios(erroApi.message, erroApi.bloqueios);
+
+    if (erroApi.bloqueios.length && !forcarDivergenciaFormato) {
+      abrirBloqueioModal({
+        origem: "validar_linha",
+        mensagem: erroApi.message,
+        codigo: erroApi.codigo,
+        bloqueios: erroApi.bloqueios,
+        permiteOverride: erroApi.permiteOverride,
+        onConfirm: erroApi.permiteOverride
+          ? async () => {
+              await validarLinha(row, { forcarDivergenciaFormato: true });
+            }
+          : null,
+      });
+      return false;
+    }
+
+    throw new Error(erroApi.message);
   }
 
+  lastBloqueioResumo.value = "";
   applyKpis(payload.kpis || {});
   await reloadDivergencias(false);
   notify("Venda validada com sucesso.");
@@ -877,6 +1212,7 @@ function abrirConfirmacao(acao, escopo, row = null) {
 async function confirmarAcao() {
   confirmRunning.value = true;
   try {
+    showConfirmModal.value = false;
     let sucesso = false;
     if (confirmScope.value === "linha" && confirmRow.value) {
       if (confirmAction.value === "validar") {
@@ -892,8 +1228,8 @@ async function confirmarAcao() {
       }
     }
 
-    if (sucesso) {
-      showConfirmModal.value = false;
+    if (!sucesso && !showBloqueioModal.value) {
+      showConfirmModal.value = true;
     }
   } catch (err) {
     console.error(err);
@@ -943,8 +1279,15 @@ async function saveEdit(payload) {
   }
 }
 
-async function aplicarLote(acao, payload = {}) {
-  if (!selectedRows.value.length) {
+async function aplicarLote(acao, payload = {}, options = {}) {
+  const vendasSelecionadas = Array.isArray(options.vendasOverride) && options.vendasOverride.length
+    ? options.vendasOverride
+    : selectedRows.value.map((row) => ({
+      tipo_documento: row.tipo_documento,
+      id_legado: row.id_legado,
+    }));
+
+  if (!vendasSelecionadas.length) {
     return false;
   }
 
@@ -956,16 +1299,53 @@ async function aplicarLote(acao, payload = {}) {
       body: JSON.stringify({
         acao,
         payload,
-        vendas: selectedRows.value.map((row) => ({
-          tipo_documento: row.tipo_documento,
-          id_legado: row.id_legado,
-        })),
+        vendas: vendasSelecionadas,
       }),
     });
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(result.detail || `Erro ${response.status}`);
+      const erroApi = parseApiErrorPayload(result, response.status);
+      lastBloqueioResumo.value = resumirBloqueios(erroApi.message, erroApi.bloqueios);
+      throw new Error(erroApi.message);
+    }
+
+    const bloqueios = Array.isArray(result.bloqueios) ? result.bloqueios : [];
+    const totalBloqueadas = Number(result.bloqueadas || 0);
+    if (acao === "validar" && totalBloqueadas > 0 && bloqueios.length) {
+      const podeOverride = bloqueios.every((item) => Boolean(item?.permite_override));
+      const vendasBloqueadas = bloqueios
+        .filter((item) => item?.tipo_documento && item?.id_legado !== null && item?.id_legado !== undefined)
+        .map((item) => ({
+          tipo_documento: item.tipo_documento,
+          id_legado: item.id_legado,
+        }));
+
+      const mensagemBloqueio = `Validacao em lote bloqueou ${totalBloqueadas} venda(s).`;
+      lastBloqueioResumo.value = mensagemBloqueio;
+      abrirBloqueioModal({
+        origem: "validar_lote",
+        mensagem: mensagemBloqueio,
+        codigo: "validacao_lote_bloqueada",
+        bloqueios,
+        permiteOverride: podeOverride,
+        onConfirm: podeOverride
+          ? async () => {
+              await aplicarLote(
+                "validar",
+                {
+                  ...payload,
+                  forcar_divergencia_formato: true,
+                },
+                {
+                  vendasOverride: vendasBloqueadas,
+                },
+              );
+            }
+          : null,
+      });
+    } else {
+      lastBloqueioResumo.value = "";
     }
 
     applyKpis(result.kpis || {});
@@ -1116,19 +1496,50 @@ async function consolidarSot() {
     return;
   }
 
-  consolidating.value = true;
-  try {
+  const forcarDivergenciaFormato = false;
+
+  async function executarConsolidacao(overrideFormato = false) {
     const response = await fetch(`${API_BASE_URL}/api/validacao/consolidar-vendas-sot`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        forcar_divergencia_formato: Boolean(overrideFormato),
+      }),
     });
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.detail || `Erro ${response.status}`);
+      const erroApi = parseApiErrorPayload(payload, response.status);
+      lastBloqueioResumo.value = resumirBloqueios(erroApi.message, erroApi.bloqueios);
+
+      if (erroApi.bloqueios.length && !overrideFormato) {
+        abrirBloqueioModal({
+          origem: "consolidar",
+          mensagem: erroApi.message,
+          codigo: erroApi.codigo,
+          bloqueios: erroApi.bloqueios,
+          permiteOverride: erroApi.permiteOverride,
+          onConfirm: erroApi.permiteOverride
+            ? async () => {
+                await executarConsolidacao(true);
+              }
+            : null,
+        });
+        return false;
+      }
+
+      throw new Error(erroApi.message);
     }
 
+    lastBloqueioResumo.value = "";
     consolidacaoResult.value = payload?.resultado || null;
     notify("Consolidacao STG -> SOT concluida.");
+    return true;
+  }
+
+  consolidating.value = true;
+  try {
+    await executarConsolidacao(forcarDivergenciaFormato);
   } catch (err) {
     console.error(err);
     uploadError.value = err?.message || "Falha ao consolidar vendas no SOT.";
@@ -1147,25 +1558,16 @@ async function submit() {
 
   submitting.value = true;
   try {
-    const response = await fetch(`${API_BASE_URL}/api/validacao/sincronizar-vendas-firebird`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        data_inicial: form.data_inicial,
-        data_final: form.data_final,
-      }),
+    await executarSincronizacaoFirebird(`${API_BASE_URL}/api/validacao/sincronizar-vendas-firebird`, {
+      data_inicial: form.data_inicial,
+      data_final: form.data_final,
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.detail || `Erro ${response.status}`);
-    }
 
     showModal.value = false;
     notify("Sincronizacao de vendas concluida com sucesso.");
   } catch (err) {
     console.error(err);
-    error.value = err?.message || "Falha ao sincronizar vendas do legado.";
+    error.value = formatarErroSincronizacao(err, "Falha ao sincronizar vendas do legado.");
   } finally {
     submitting.value = false;
   }

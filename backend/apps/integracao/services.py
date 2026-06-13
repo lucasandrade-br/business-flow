@@ -58,8 +58,8 @@ FROM CLIENTES
 """
 
 
-def _build_firebird_dsn() -> str:
-    fdb_path = settings.FDB_PATH
+def _build_firebird_dsn(firebird_path: str | None = None) -> str:
+    fdb_path = str(firebird_path or settings.FDB_PATH or "").strip()
     if not fdb_path:
         raise ValueError("FDB_PATH is not configured in environment.")
 
@@ -107,13 +107,13 @@ def _normalize_date(value: Any) -> date | None:
     return None
 
 
-def extrair_produtos_novos_sync() -> int:
+def extrair_produtos_novos_sync(firebird_path: str | None = None) -> int:
     logger.info("Iniciando ETL de produtos para staging MySQL")
 
     if settings.FDB_CLIENT_LIB_PATH:
         fdb.fb_library_name = settings.FDB_CLIENT_LIB_PATH
 
-    dsn = _build_firebird_dsn()
+    dsn = _build_firebird_dsn(firebird_path=firebird_path)
 
     conn = None
     cursor = None
@@ -208,17 +208,17 @@ def extrair_produtos_novos_sync() -> int:
             conn.close()
 
 
-async def extrair_produtos_novos() -> int:
-    return await asyncio.to_thread(extrair_produtos_novos_sync)
+async def extrair_produtos_novos(firebird_path: str | None = None) -> int:
+    return await asyncio.to_thread(extrair_produtos_novos_sync, firebird_path)
 
 
-def extrair_fornecedores_novos_sync() -> int:
+def extrair_fornecedores_novos_sync(firebird_path: str | None = None) -> int:
     logger.info("Iniciando ETL de fornecedores para staging MySQL")
 
     if settings.FDB_CLIENT_LIB_PATH:
         fdb.fb_library_name = settings.FDB_CLIENT_LIB_PATH
 
-    dsn = _build_firebird_dsn()
+    dsn = _build_firebird_dsn(firebird_path=firebird_path)
     conn = None
     cursor = None
     rows_to_insert: list[StgFornecedoresNovos] = []
@@ -281,17 +281,17 @@ def extrair_fornecedores_novos_sync() -> int:
             conn.close()
 
 
-async def extrair_fornecedores_novos() -> int:
-    return await asyncio.to_thread(extrair_fornecedores_novos_sync)
+async def extrair_fornecedores_novos(firebird_path: str | None = None) -> int:
+    return await asyncio.to_thread(extrair_fornecedores_novos_sync, firebird_path)
 
 
-def extrair_clientes_novos_sync() -> int:
+def extrair_clientes_novos_sync(firebird_path: str | None = None) -> int:
     logger.info("Iniciando ETL de clientes para staging MySQL")
 
     if settings.FDB_CLIENT_LIB_PATH:
         fdb.fb_library_name = settings.FDB_CLIENT_LIB_PATH
 
-    dsn = _build_firebird_dsn()
+    dsn = _build_firebird_dsn(firebird_path=firebird_path)
     conn = None
     cursor = None
     rows_to_insert: list[StgClientesNovos] = []
@@ -338,20 +338,20 @@ def extrair_clientes_novos_sync() -> int:
             conn.close()
 
 
-async def extrair_clientes_novos() -> int:
-    return await asyncio.to_thread(extrair_clientes_novos_sync)
+async def extrair_clientes_novos(firebird_path: str | None = None) -> int:
+    return await asyncio.to_thread(extrair_clientes_novos_sync, firebird_path)
 
 
-async def executar_extracao_completa() -> dict[str, int]:
+async def executar_extracao_completa(firebird_path: str | None = None) -> dict[str, int]:
     results = {
-        "produtos": await extrair_produtos_novos(),
-        "clientes": await extrair_clientes_novos(),
-        "fornecedores": await extrair_fornecedores_novos(),
+        "produtos": await extrair_produtos_novos(firebird_path=firebird_path),
+        "clientes": await extrair_clientes_novos(firebird_path=firebird_path),
+        "fornecedores": await extrair_fornecedores_novos(firebird_path=firebird_path),
     }
     logger.info("Extracao completa concluida. Resultado: %s", results)
     return results
 
 
-async def executar_etl_integracao() -> dict[str, int]:
+async def executar_etl_integracao(firebird_path: str | None = None) -> dict[str, int]:
     """Compatibilidade: alias para extracao completa."""
-    return await executar_extracao_completa()
+    return await executar_extracao_completa(firebird_path=firebird_path)

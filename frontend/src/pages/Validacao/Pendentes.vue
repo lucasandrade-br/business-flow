@@ -124,6 +124,51 @@
         <span v-else class="text-xs text-gray-500">-</span>
       </template>
 
+      <template #cell-divergencias_resumo="{ row }">
+        <div v-if="row.tipo_pendencia === 'ATUALIZACAO'" class="space-y-1">
+          <div class="flex flex-wrap items-center gap-1">
+            <span
+              v-if="getResumoDivergencias(row).alta > 0"
+              class="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700"
+            >
+              Alta: {{ getResumoDivergencias(row).alta }}
+            </span>
+            <span
+              v-if="getResumoDivergencias(row).media > 0"
+              class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+            >
+              Media: {{ getResumoDivergencias(row).media }}
+            </span>
+            <span
+              v-if="getResumoDivergencias(row).leve > 0"
+              class="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+            >
+              Leve: {{ getResumoDivergencias(row).leve }}
+            </span>
+            <span
+              v-for="campo in obterCamposDivergentes(row)"
+              :key="`${getRowKeyValue(row)}-${campo}`"
+              class="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-700"
+            >
+              {{ campo }}
+            </span>
+          </div>
+          <div class="flex max-w-[320px] flex-wrap gap-1">
+            
+            <span
+              v-if="!obterCamposDivergentes(row).length"
+              class="inline-flex rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-500"
+            >
+              Sem detalhe
+            </span>
+          </div>
+          <p class="max-w-[280px] truncate text-[11px] text-gray-500">{{ detalheRapidoDivergencia(row) }}</p>
+        </div>
+        <span v-else class="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
+          Registro novo
+        </span>
+      </template>
+
       <template #cell-dt_cadastro="{ row }">
         {{ row.dt_cadastro || '-' }}
       </template>
@@ -179,8 +224,9 @@ import BaseTable from "@/components/ui/BaseTable.vue";
 import ModalAprovacaoCliente from "@/pages/Validacao/ModalAprovacaoCliente.vue";
 import ModalAprovacaoFornecedor from "@/pages/Validacao/ModalAprovacaoFornecedor.vue";
 import ModalAprovacaoProduto from "@/pages/Validacao/ModalAprovacaoProduto.vue";
+import { executarSincronizacaoFirebird, formatarErroSincronizacao, getApiBaseUrl } from "@/services/firebirdSync";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = getApiBaseUrl();
 
 const cards = [
   { key: "produtos", title: "Produtos", subtitle: "Catálogo de itens" },
@@ -194,6 +240,7 @@ const columnsByEntity = {
     { key: "id_produto", label: "ID" },
     { key: "nome", label: "Produto" },
     { key: "tipo_pendencia", label: "Status" },
+    { key: "divergencias_resumo", label: "Divergencias" },
     { key: "custo", label: "Custo" },
     { key: "valor_venda", label: "Venda" },
   ],
@@ -202,6 +249,7 @@ const columnsByEntity = {
     { key: "id_cliente", label: "ID" },
     { key: "nome_cliente", label: "Cliente" },
     { key: "tipo_pendencia", label: "Status" },
+    { key: "divergencias_resumo", label: "Divergencias" },
     { key: "raz_social", label: "Razao Social" },
   ],
   fornecedores: [
@@ -209,6 +257,7 @@ const columnsByEntity = {
     { key: "id_fornecedor", label: "ID" },
     { key: "nome_fornecedor", label: "Fornecedor" },
     { key: "tipo_pendencia", label: "Status" },
+    { key: "divergencias_resumo", label: "Divergencias" },
     { key: "raz_social", label: "Razao Social" },
     { key: "dt_cadastro", label: "Cadastro" },
   ],
@@ -266,6 +315,55 @@ function asMoney(value) {
   });
 }
 
+function getResumoDivergencias(row) {
+  const fallback = {
+    total: 0,
+    alta: 0,
+    media: 0,
+    leve: 0,
+    campos: [],
+  };
+
+  const resumo = row?.divergencias_resumo;
+  if (resumo && typeof resumo === "object") {
+    return {
+      total: Number(resumo.total || 0),
+      alta: Number(resumo.alta || 0),
+      media: Number(resumo.media || 0),
+      leve: Number(resumo.leve || 0),
+      campos: Array.isArray(resumo.campos) ? resumo.campos : [],
+    };
+  }
+
+  const divergencias = Array.isArray(row?.divergencias) ? row.divergencias : [];
+  return {
+    ...fallback,
+    total: divergencias.length,
+    alta: divergencias.filter((item) => item?.gravidade === "alta").length,
+    media: divergencias.filter((item) => item?.gravidade === "media").length,
+    leve: divergencias.filter((item) => item?.gravidade === "leve").length,
+    campos: divergencias.map((item) => item?.label).filter(Boolean),
+  };
+}
+
+function obterCamposDivergentes(row) {
+  const campos = getResumoDivergencias(row).campos;
+  return [...new Set(campos)];
+}
+
+function detalheRapidoDivergencia(row) {
+  const divergencias = Array.isArray(row?.divergencias) ? row.divergencias : [];
+  if (!divergencias.length) {
+    return "Sem detalhes adicionais";
+  }
+
+  const principal = divergencias[0];
+  const label = principal?.label || "Campo";
+  const sor = principal?.valor_sor ?? "-";
+  const sot = principal?.valor_sot ?? "-";
+  return `${label}: ${sor} -> ${sot}`;
+}
+
 function notify(message) {
   toast.value = message;
   setTimeout(() => {
@@ -321,6 +419,7 @@ function baseEndpoint() {
 
 function endpointWithSearch(raw = baseEndpoint()) {
   const url = new URL(raw);
+  url.searchParams.set("page_size", "100");
   if (search.value.trim()) {
     url.searchParams.set("search", search.value.trim());
   } else {
@@ -443,21 +542,14 @@ watch(search, () => {
 async function sincronizar() {
   syncing.value = true;
   try {
-    const response = await fetch(`${API_BASE_URL}/api/integracao/sincronizar`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Erro ${response.status}`);
-    }
+    await executarSincronizacaoFirebird(`${API_BASE_URL}/api/integracao/sincronizar`);
 
     notify("Sincronizacao concluida com sucesso.");
     await loadResumo();
     await load(baseEndpoint());
   } catch (err) {
     console.error(err);
-    notify("Falha ao sincronizar o ERP.");
+    notify(formatarErroSincronizacao(err, "Falha ao sincronizar o ERP."));
   } finally {
     syncing.value = false;
   }

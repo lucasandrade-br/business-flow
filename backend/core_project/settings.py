@@ -68,6 +68,7 @@ LOCAL_APPS = [
     "apps.cadastros.apps.CadastrosConfig",
     "apps.integracao.apps.IntegracaoConfig",
     "apps.validacao.apps.ValidacaoConfig",
+    "apps.compras.apps.ComprasConfig",
     "apps.vendas.apps.VendasConfig",
     "apps.analise.apps.AnaliseConfig",
 ]

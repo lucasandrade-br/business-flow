@@ -282,6 +282,8 @@ class ExportacaoRequestSerializer(serializers.Serializer):
             "vendas",
             "itens_venda",
             "pagamentos_venda",
+            "compras",
+            "itens_compra",
         ]
     )
     tipo = serializers.ChoiceField(choices=["BASICO", "SQL"], default="BASICO", required=False)

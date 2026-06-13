@@ -30,7 +30,10 @@
             v-for="row in rows"
             :key="row[rowKey]"
             class="border-b border-gray-100 transition-colors hover:bg-gray-50"
-            :class="selectedRowKeySet.has(row[rowKey]) ? 'bg-[#f7fafc]' : ''"
+            :class="[
+              resolveRowClass(row),
+              selectedRowKeySet.has(row[rowKey]) ? 'ring-1 ring-inset ring-[#93c5fd]' : '',
+            ]"
           >
             <td v-for="column in columns" :key="column.key" class="px-4 py-3" :class="column.cellClass">
               <slot :name="`cell-${column.key}`" :row="row">
@@ -85,6 +88,7 @@ const props = defineProps({
   error: { type: String, default: "" },
   emptyText: { type: String, default: "Nenhum registro." },
   selectedRowKeys: { type: Array, default: () => [] },
+  rowClass: { type: Function, default: null },
 });
 
 defineEmits(["next", "previous"]);
@@ -94,4 +98,12 @@ const hasHeaderText = computed(() => {
 });
 
 const selectedRowKeySet = computed(() => new Set(props.selectedRowKeys || []));
+
+function resolveRowClass(row) {
+  if (typeof props.rowClass !== "function") {
+    return "";
+  }
+
+  return props.rowClass(row) || "";
+}
 </script>

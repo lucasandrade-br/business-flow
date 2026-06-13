@@ -16,6 +16,7 @@ from .serializers import (
     FornecedorPendenteSerializer,
     ProdutoPendenteSerializer,
 )
+from apps.integracao.firebird_config import resolve_firebird_path_for_request
 from .services import (
     aplicar_tratamento_pendencias_lote,
     aplicar_tratamento_divergencia,
@@ -26,6 +27,7 @@ from .services import (
     consolidar_stg_para_sot,
     contar_pendencias_validacao,
     get_importacao_job,
+    limpar_fluxo_reconciliacao,
     listar_divergencias_reconciliacao,
     listar_formas_pagamento,
     listar_clientes_pendentes,
@@ -35,11 +37,27 @@ from .services import (
     start_importacao_planilhas_auditoria,
     sincronizar_vendas_legado,
 )
+from .services.auditoria_planilha import ReconciliacaoBloqueioError
 
 
 class ResumoPendenciasAPIView(APIView):
     def get(self, request: Request) -> Response:
         return Response(contar_pendencias_validacao())
+
+
+def _resolver_page_size_pendentes(request: Request) -> int:
+    page_size_raw = str(request.query_params.get("page_size", "")).strip()
+    if not page_size_raw:
+        return 50
+
+    try:
+        page_size = int(page_size_raw)
+    except ValueError:
+        return 50
+
+    if page_size < 1:
+        return 50
+    return min(page_size, 100)
 
 
 class ProdutosPendentesAPIView(generics.ListAPIView):
@@ -49,7 +67,7 @@ class ProdutosPendentesAPIView(generics.ListAPIView):
         search = request.query_params.get("search", "").strip()
         data = listar_produtos_pendentes(search=search)
         paginator = PageNumberPagination()
-        paginator.page_size = 50
+        paginator.page_size = _resolver_page_size_pendentes(request)
         page = paginator.paginate_queryset(data, request, view=self)
         serializer = self.get_serializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
@@ -74,7 +92,7 @@ class ClientesPendentesAPIView(generics.ListAPIView):
         search = request.query_params.get("search", "").strip()
         data = listar_clientes_pendentes(search=search)
         paginator = PageNumberPagination()
-        paginator.page_size = 50
+        paginator.page_size = _resolver_page_size_pendentes(request)
         page = paginator.paginate_queryset(data, request, view=self)
         serializer = self.get_serializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
@@ -96,7 +114,7 @@ class FornecedoresPendentesAPIView(generics.ListAPIView):
         search = request.query_params.get("search", "").strip()
         data = listar_fornecedores_pendentes(search=search)
         paginator = PageNumberPagination()
-        paginator.page_size = 50
+        paginator.page_size = _resolver_page_size_pendentes(request)
         page = paginator.paginate_queryset(data, request, view=self)
         serializer = self.get_serializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
@@ -170,7 +188,21 @@ class SincronizarVendasFirebirdAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        resultado = sincronizar_vendas_legado(data_inicial=data_inicial, data_final=data_final)
+        try:
+            with resolve_firebird_path_for_request(request) as firebird_path:
+                resultado = sincronizar_vendas_legado(
+                    data_inicial=data_inicial,
+                    data_final=data_final,
+                    firebird_path=firebird_path,
+                )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(
+                {"detail": "Falha ao sincronizar vendas do legado."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         return Response(
             {
                 "detail": "Sincronizacao de vendas legado concluida com sucesso.",
@@ -224,8 +256,11 @@ class ImportarAuditoriaPlanilhaStatusAPIView(APIView):
 
 class ConsolidarVendasSOTAPIView(APIView):
     def post(self, request: Request) -> Response:
+        forcar_divergencia_formato = bool((request.data or {}).get("forcar_divergencia_formato"))
         try:
-            resultado = consolidar_stg_para_sot()
+            resultado = consolidar_stg_para_sot(forcar_divergencia_formato=forcar_divergencia_formato)
+        except ReconciliacaoBloqueioError as exc:
+            return Response(exc.to_payload(), status=status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
@@ -237,6 +272,25 @@ class ConsolidarVendasSOTAPIView(APIView):
         return Response(
             {
                 "detail": "Consolidacao STG->SOT concluida.",
+                "resultado": resultado,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ReconciliacaoLimparFluxoAPIView(APIView):
+    def post(self, request: Request) -> Response:
+        try:
+            resultado = limpar_fluxo_reconciliacao()
+        except Exception:
+            return Response(
+                {"detail": "Falha ao limpar dados temporarios de reconciliacao."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                "detail": "Fluxo de reconciliacao reiniciado com sucesso.",
                 "resultado": resultado,
             },
             status=status.HTTP_200_OK,
@@ -295,6 +349,8 @@ class ReconciliacaoTratarDivergenciaAPIView(APIView):
                 acao=acao,
                 payload=payload,
             )
+        except ReconciliacaoBloqueioError as exc:
+            return Response(exc.to_payload(), status=status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
@@ -320,6 +376,8 @@ class ReconciliacaoTratarDivergenciaLoteAPIView(APIView):
         try:
             payload = request.data.get("payload") or {}
             resultado = aplicar_tratamento_divergencias_lote(vendas=vendas, acao=acao, payload=payload)
+        except ReconciliacaoBloqueioError as exc:
+            return Response(exc.to_payload(), status=status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:

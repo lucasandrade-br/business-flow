@@ -10,16 +10,13 @@ if not exist ".venv\Scripts\python.exe" (
 
 call ".venv\Scripts\activate.bat"
 
-start "API Django" cmd /k "cd /d "%~dp0backend" && python -m waitress --listen=127.0.0.1:8000 core_project.wsgi:application"
+start "API Django" cmd /k "cd /d ""%~dp0backend"" && python -m waitress --listen=127.0.0.1:8000 core_project.wsgi:application"
 
 if exist "%~dp0frontend" (
-    start "Frontend Vue" cmd /k "cd /d "%~dp0frontend" && npm run dev"
+    start "Frontend Vue" cmd /k "cd /d ""%~dp0frontend"" && npm run dev"
 )
 
 start http://localhost:5173
 
 echo Sistema iniciado.
 endlocal
-
-
-"Para poder começar a usar o software em produção, devemos alterar npm run dev para npm run build e ativar na porta 4173"

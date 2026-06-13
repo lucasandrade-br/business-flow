@@ -28,6 +28,7 @@ from apps.cadastros.models import (
     UnidadeMedida,
     Usuario,
 )
+from apps.integracao.hash_engine import percentual_semelhanca_textual
 from apps.validacao.services_legacy import contar_pendencias_validacao
 from apps.validacao.models import STG_AuditoriaPlanilha, STG_ItemVenda, STG_PagamentoVenda, STG_Venda
 from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
@@ -35,11 +36,23 @@ from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
 
 HOST_VENDA_SHEET_NAME = "HostVenda"
 VALID_EXTENSIONS = {".xlsx", ".xlsm"}
-DECIMAL_TOLERANCE = Decimal("0.01")
+DECIMAL_TOLERANCE = Decimal("0.5")
+LIMIAR_SEMELHANCA_NOME_PRODUTO = 0.7
+LIMIAR_SEMELHANCA_NOME_CLIENTE = 0.7
 MOTIVOS_DIVERGENCIA_VALIDOS = {
     "divergencia_totais",
     "divergencia_formato",
     "duplicado_sot",
+}
+MOTIVOS_DIVERGENCIA_NAO_BLOQUEANTES_CONSOLIDACAO = {
+    "divergencia_totais",
+    "duplicado_sot",
+}
+CODIGOS_PRECHECK_COM_OVERRIDE_FORMATO = {
+    "divergencia_formato_pagamento",
+}
+MOTIVOS_RECONCILIACAO_COM_OVERRIDE_FORMATO = {
+    "divergencia_formato",
 }
 UNIDADE_ALIAS: dict[str, str] = {
     "UND": "UN",
@@ -75,6 +88,30 @@ class ValidationResult:
     inconsistencias: list[dict[str, Any]]
     kpis: dict[str, Any]
     pode_aprovar: bool
+
+
+class ReconciliacaoBloqueioError(ValueError):
+    def __init__(
+        self,
+        detail: str,
+        *,
+        codigo: str,
+        bloqueios: list[dict[str, Any]] | None = None,
+        permite_override: bool = False,
+    ) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.codigo = codigo
+        self.bloqueios = bloqueios or []
+        self.permite_override = bool(permite_override)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "detail": self.detail,
+            "codigo": self.codigo,
+            "bloqueios": self.bloqueios,
+            "permite_override": self.permite_override,
+        }
 
 
 def _normalize_text(value: Any) -> str:
@@ -126,6 +163,363 @@ def _formatar_erros_precheck(erros: list[str], max_items: int = 40) -> str:
         linhas.append(f"- ... e mais {restante} inconsistencia(s).")
 
     return "\n".join(linhas)
+
+
+def _nomes_clientes_semelhantes(nome_stg: Any, nome_sot: Any) -> tuple[bool, float]:
+    nome_stg_norm = _normalize_identity_text(nome_stg)
+    nome_sot_norm = _normalize_identity_text(nome_sot)
+    if not nome_stg_norm or not nome_sot_norm:
+        return True, 1.0
+
+    similaridade = percentual_semelhanca_textual(nome_stg, nome_sot)
+    return similaridade >= LIMIAR_SEMELHANCA_NOME_CLIENTE, similaridade
+
+
+def _nomes_produtos_semelhantes(nome_stg: Any, nome_sot: Any) -> tuple[bool, float]:
+    nome_stg_norm = _normalize_identity_text(nome_stg)
+    nome_sot_norm = _normalize_identity_text(nome_sot)
+    if not nome_stg_norm or not nome_sot_norm:
+        return True, 1.0
+
+    similaridade = percentual_semelhanca_textual(
+        nome_stg,
+        nome_sot,
+        ordenar_tokens=True,
+    )
+    return similaridade >= LIMIAR_SEMELHANCA_NOME_PRODUTO, similaridade
+
+
+def _motivos_snapshot_venda(venda: STG_Venda) -> set[str]:
+    snapshot = venda.snapshot_divergencia or {}
+    motivos_raw = snapshot.get("motivos") or []
+    return {
+        _normalize_text(item).lower()
+        for item in motivos_raw
+        if _normalize_text(item)
+    }
+
+
+def _motivos_bloqueantes_consolidacao(venda: STG_Venda) -> set[str]:
+    return _motivos_snapshot_venda(venda) - MOTIVOS_DIVERGENCIA_NAO_BLOQUEANTES_CONSOLIDACAO
+
+
+def _formatar_erros_validacao_bloqueada(erros: list[str], max_items: int = 20) -> str:
+    linhas = ["Validacao bloqueada por inconsistencias estruturais."]
+    for item in erros[:max_items]:
+        linhas.append(f"- {item}")
+
+    restante = len(erros) - max_items
+    if restante > 0:
+        linhas.append(f"- ... e mais {restante} inconsistencia(s).")
+
+    return "\n".join(linhas)
+
+
+def _extrair_codigo_precheck(erro: str) -> str:
+    erro_norm = _normalize_text(erro)
+    if not erro_norm:
+        return "inconsistencia"
+
+    _, separador, resto = erro_norm.partition(":")
+    trecho = resto if separador else erro_norm
+    token = _normalize_text(trecho).split(" ", 1)[0].strip().lower()
+    return token or "inconsistencia"
+
+
+def _codigos_precheck_apenas_formato(codigos: set[str]) -> bool:
+    return bool(codigos) and codigos <= CODIGOS_PRECHECK_COM_OVERRIDE_FORMATO
+
+
+def _motivos_reconciliacao_apenas_formato(motivos: set[str]) -> bool:
+    return bool(motivos) and motivos <= MOTIVOS_RECONCILIACAO_COM_OVERRIDE_FORMATO
+
+
+def _permite_override_precheck(codigos: set[str], forcar_divergencia_formato: bool) -> bool:
+    return bool(forcar_divergencia_formato) and _codigos_precheck_apenas_formato(codigos)
+
+
+def _permite_override_motivos_reconciliacao(
+    motivos: set[str],
+    forcar_divergencia_formato: bool,
+) -> bool:
+    return bool(forcar_divergencia_formato) and _motivos_reconciliacao_apenas_formato(motivos)
+
+
+def _montar_bloqueio_precheck_venda(venda: STG_Venda, erros_precheck: list[str]) -> dict[str, Any]:
+    codigos = {
+        _extrair_codigo_precheck(item)
+        for item in erros_precheck
+        if _normalize_text(item)
+    }
+    codigos_ordenados = sorted(codigos)
+
+    return {
+        "tipo_documento": venda.tipo_documento,
+        "id_legado": int(venda.id_legado),
+        "venda": f"{venda.tipo_documento} #{int(venda.id_legado):06d}",
+        "erros": erros_precheck[:20],
+        "codigos": codigos_ordenados,
+        "possui_divergencia_formato": "divergencia_formato_pagamento" in codigos,
+        "permite_override": _codigos_precheck_apenas_formato(codigos),
+    }
+
+
+def _agrupar_erros_precheck_por_venda(erros: list[str]) -> list[dict[str, Any]]:
+    agrupado: dict[tuple[str, int], dict[str, Any]] = {}
+    gerais: list[str] = []
+
+    for erro in erros:
+        erro_norm = _normalize_text(erro)
+        if not erro_norm:
+            continue
+
+        prefixo_raw, separador, _ = erro_norm.partition(":")
+        if not separador or "#" not in prefixo_raw:
+            gerais.append(erro_norm)
+            continue
+
+        tipo_raw, id_legado_raw = prefixo_raw.split("#", 1)
+        tipo_documento = _normalize_text(tipo_raw).upper()
+        try:
+            id_legado = int(_normalize_text(id_legado_raw))
+        except ValueError:
+            gerais.append(erro_norm)
+            continue
+
+        chave = (tipo_documento, id_legado)
+        registro = agrupado.setdefault(
+            chave,
+            {
+                "tipo_documento": tipo_documento,
+                "id_legado": id_legado,
+                "venda": f"{tipo_documento} #{id_legado:06d}",
+                "erros": [],
+                "_codigos": set(),
+            },
+        )
+        if len(registro["erros"]) < 20:
+            registro["erros"].append(erro_norm)
+        registro["_codigos"].add(_extrair_codigo_precheck(erro_norm))
+
+    bloqueios: list[dict[str, Any]] = []
+    for registro in agrupado.values():
+        codigos = sorted(registro.pop("_codigos"))
+        bloqueios.append(
+            {
+                **registro,
+                "codigos": codigos,
+                "possui_divergencia_formato": "divergencia_formato_pagamento" in codigos,
+                "permite_override": _codigos_precheck_apenas_formato(set(codigos)),
+            }
+        )
+
+    if gerais:
+        bloqueios.append(
+            {
+                "tipo_documento": "",
+                "id_legado": None,
+                "venda": "GERAL",
+                "erros": gerais[:20],
+                "codigos": ["inconsistencia_geral"],
+                "possui_divergencia_formato": False,
+                "permite_override": False,
+            }
+        )
+
+    bloqueios.sort(key=lambda item: (str(item.get("tipo_documento") or ""), int(item.get("id_legado") or 0)))
+    return bloqueios[:200]
+
+
+def _coletar_erros_precheck_consolidacao(candidatas: list[STG_Venda]) -> list[str]:
+    if not candidatas:
+        return []
+
+    itens_por_venda: dict[int, list[STG_ItemVenda]] = {}
+    pagamentos_por_venda: dict[int, list[STG_PagamentoVenda]] = {}
+    produto_ids: set[int] = set()
+    usuario_ids: set[int] = set()
+    cliente_ids: set[int] = set()
+    tipos_documento: set[str] = set()
+    ids_legado: set[int] = set()
+
+    for stg_venda in candidatas:
+        itens = list(stg_venda.itens.all())
+        pagamentos = list(stg_venda.pagamentos.all())
+        itens_por_venda[stg_venda.pk] = itens
+        pagamentos_por_venda[stg_venda.pk] = pagamentos
+        tipos_documento.add(stg_venda.tipo_documento)
+        ids_legado.add(int(stg_venda.id_legado))
+
+        if stg_venda.id_usuario_legado is not None:
+            usuario_ids.add(int(stg_venda.id_usuario_legado))
+
+        if stg_venda.id_cliente_legado not in (None, 0):
+            cliente_ids.add(int(stg_venda.id_cliente_legado))
+
+        for item in itens:
+            if item.id_produto_legado is not None:
+                produto_ids.add(int(item.id_produto_legado))
+
+    usuarios_por_id = {
+        int(usuario.id_usuario): usuario
+        for usuario in Usuario.objects.filter(id_usuario__in=usuario_ids)
+    }
+    clientes_por_id = {
+        int(cliente.id_cliente): cliente
+        for cliente in Cliente.objects.filter(id_cliente__in=cliente_ids)
+    }
+    produtos_por_id = {
+        int(produto.id_produto): produto
+        for produto in Produto.objects.filter(id_produto__in=produto_ids)
+    }
+
+    unidades_por_sigla: dict[str, UnidadeMedida] = {}
+    for unidade in UnidadeMedida.objects.all():
+        token = _normalize_unit_token(unidade.sigla)
+        if token:
+            unidades_por_sigla[token] = unidade
+
+    formas_origem_validas = {
+        (str(tipo).strip().upper(), int(id_origem))
+        for tipo, id_origem in FormaPagamentoOrigem.objects.filter(ativo=True).values_list(
+            "tipo_documento", "id_forma_origem"
+        )
+    }
+    mapeamentos_ativos = {
+        (str(item.tipo_documento).strip().upper(), int(item.id_forma_origem)): item.forma_pagamento
+        for item in FormaPagamentoMapeamento.objects.select_related("forma_pagamento").filter(ativo=True)
+    }
+
+    auditoria_pagamentos_por_venda: dict[tuple[str, int], set[str]] = {}
+    for row in STG_AuditoriaPlanilha.objects.filter(
+        tipo_documento__in=tipos_documento,
+        id_legado__in=ids_legado,
+    ).values("tipo_documento", "id_legado", "tipo_pagamento_descricao"):
+        key = (row["tipo_documento"], int(row["id_legado"]))
+        agg = auditoria_pagamentos_por_venda.setdefault(key, set())
+        agg.update(_extract_pagamento_tokens(row["tipo_pagamento_descricao"]))
+
+    clientes_padrao = list(Cliente.objects.filter(cliente_padrao=True).order_by("id_cliente")[:2])
+    if len(clientes_padrao) > 1:
+        return ["Consolidacao bloqueada: existe mais de um cliente padrao configurado."]
+    cliente_padrao = clientes_padrao[0] if clientes_padrao else None
+
+    erros_precheck: list[str] = []
+    for stg_venda in candidatas:
+        prefixo = f"{stg_venda.tipo_documento}#{stg_venda.id_legado}"
+        chave_venda = (stg_venda.tipo_documento, int(stg_venda.id_legado))
+
+        itens = itens_por_venda.get(stg_venda.pk, [])
+        pagamentos = pagamentos_por_venda.get(stg_venda.pk, [])
+        if not itens or not pagamentos:
+            erros_precheck.append(f"{prefixo}: venda_sem_itens_ou_pagamentos")
+            continue
+
+        pagamentos_stg = {
+            token
+            for token in {
+                _normalize_compare_token(pg.tipo_pagamento_descricao_legado)
+                for pg in pagamentos
+            }
+            if token
+        }
+        pagamentos_auditoria = auditoria_pagamentos_por_venda.get(chave_venda, set())
+        if pagamentos_stg != pagamentos_auditoria:
+            erros_precheck.append(
+                f"{prefixo}: divergencia_formato_pagamento "
+                f"(stg='{sorted(pagamentos_stg)}', auditoria='{sorted(pagamentos_auditoria)}')"
+            )
+
+        if stg_venda.id_usuario_legado is None:
+            erros_precheck.append(f"{prefixo}: usuario_legado_ausente")
+        else:
+            usuario = usuarios_por_id.get(int(stg_venda.id_usuario_legado))
+            if usuario is None:
+                erros_precheck.append(
+                    f"{prefixo}: usuario_legado_nao_encontrado (id={stg_venda.id_usuario_legado})"
+                )
+            else:
+                nome_stg = _normalize_identity_text(stg_venda.nome_usuario_legado)
+                nome_sot = _normalize_identity_text(usuario.nome)
+                if nome_stg and nome_sot and nome_stg != nome_sot:
+                    erros_precheck.append(
+                        f"{prefixo}: usuario_nome_divergente "
+                        f"(stg='{stg_venda.nome_usuario_legado}', sot='{usuario.nome}')"
+                    )
+
+        if stg_venda.id_cliente_legado in (None, 0):
+            if cliente_padrao is None:
+                erros_precheck.append(f"{prefixo}: cliente_legado_zero_sem_cliente_padrao_configurado")
+        else:
+            cliente = clientes_por_id.get(int(stg_venda.id_cliente_legado))
+            if cliente is None:
+                erros_precheck.append(f"{prefixo}: cliente_nao_encontrado (id={stg_venda.id_cliente_legado})")
+            else:
+                nomes_compativeis, similaridade_cliente = _nomes_clientes_semelhantes(
+                    stg_venda.nome_cliente_legado,
+                    cliente.nome_cliente,
+                )
+                if not nomes_compativeis:
+                    erros_precheck.append(
+                        f"{prefixo}: cliente_nome_divergente "
+                        f"(similaridade={similaridade_cliente * 100:.1f}%, "
+                        f"stg='{stg_venda.nome_cliente_legado}', sot='{cliente.nome_cliente}')"
+                    )
+
+        for item in itens:
+            if item.id_produto_legado is None:
+                erros_precheck.append(f"{prefixo}: item_sem_id_produto")
+                continue
+
+            produto = produtos_por_id.get(int(item.id_produto_legado))
+            if produto is None:
+                erros_precheck.append(f"{prefixo}: produto_nao_encontrado (id={item.id_produto_legado})")
+                continue
+
+            nomes_compativeis, similaridade_produto = _nomes_produtos_semelhantes(
+                item.nome_produto_legado,
+                produto.produto,
+            )
+            if not nomes_compativeis:
+                erros_precheck.append(
+                    f"{prefixo}: produto_nome_divergente "
+                    f"(id={item.id_produto_legado}, similaridade={similaridade_produto * 100:.1f}%, "
+                    f"stg='{item.nome_produto_legado}', sot='{produto.produto}')"
+                )
+                continue
+
+            unidade = _resolver_unidade_legado(
+                unidade_legado=item.unidade_comercial_legado,
+                unidades_por_sigla=unidades_por_sigla,
+            )
+            if unidade is None:
+                erros_precheck.append(
+                    f"{prefixo}: unidade_legado_sem_mapeamento "
+                    f"(valor='{item.unidade_comercial_legado}')"
+                )
+
+        for pg in pagamentos:
+            if pg.id_tipo_pagamento_legado is None:
+                erros_precheck.append(f"{prefixo}: pagamento_sem_id_forma_origem")
+                continue
+
+            chave = (stg_venda.tipo_documento, int(pg.id_tipo_pagamento_legado))
+            if chave not in formas_origem_validas:
+                erros_precheck.append(
+                    f"{prefixo}: forma_origem_nao_cadastrada "
+                    f"(tipo={stg_venda.tipo_documento}, id_origem={pg.id_tipo_pagamento_legado})"
+                )
+                continue
+
+            forma = mapeamentos_ativos.get(chave)
+            if forma is None:
+                erros_precheck.append(
+                    f"{prefixo}: mapeamento_forma_ausente "
+                    f"(tipo={stg_venda.tipo_documento}, id_origem={pg.id_tipo_pagamento_legado})"
+                )
+
+    return erros_precheck
+
 
 
 def _normalize_tipo_documento(value: Any) -> str:
@@ -856,8 +1250,22 @@ def aplicar_tratamento_divergencia(
     if acao_norm not in {"validar", "ajustar", "negligenciar"}:
         raise ValueError("Acao invalida. Use 'validar', 'ajustar' ou 'negligenciar'.")
 
+    forcar_divergencia_formato = bool(payload.get("forcar_divergencia_formato"))
+
     with transaction.atomic():
         if acao_norm == "validar":
+            erros_precheck = _coletar_erros_precheck_consolidacao([venda])
+            if erros_precheck:
+                bloqueio = _montar_bloqueio_precheck_venda(venda, erros_precheck)
+                codigos = set(bloqueio.get("codigos") or [])
+                if not _permite_override_precheck(codigos, forcar_divergencia_formato):
+                    raise ReconciliacaoBloqueioError(
+                        _formatar_erros_validacao_bloqueada(erros_precheck),
+                        codigo="validacao_bloqueada_precheck",
+                        bloqueios=[bloqueio],
+                        permite_override=bool(bloqueio.get("permite_override")),
+                    )
+
             venda.validacao_override = True
             venda.status_validacao = STG_Venda.STATUS_APROVADO
             venda.status_tratamento = STG_Venda.TRATAMENTO_VALIDADO
@@ -977,6 +1385,7 @@ def aplicar_tratamento_divergencias_lote(
         raise ValueError("Acao em lote invalida. Use 'validar', 'negligenciar' ou 'editar_pagamento'.")
 
     payload = payload or {}
+    forcar_divergencia_formato = bool(payload.get("forcar_divergencia_formato"))
     id_forma_destino: int | None = None
     if acao_norm == "editar_pagamento":
         id_forma_raw = payload.get("id_forma")
@@ -993,6 +1402,8 @@ def aplicar_tratamento_divergencias_lote(
 
     processadas = 0
     ignoradas = 0
+    bloqueadas = 0
+    bloqueios: list[dict[str, Any]] = []
     with transaction.atomic():
         for venda_data in vendas:
             tipo_documento = _normalize_text(venda_data.get("tipo_documento")).upper()
@@ -1009,6 +1420,15 @@ def aplicar_tratamento_divergencias_lote(
                 continue
 
             if acao_norm == "validar":
+                erros_precheck = _coletar_erros_precheck_consolidacao([venda])
+                if erros_precheck:
+                    bloqueio = _montar_bloqueio_precheck_venda(venda, erros_precheck)
+                    codigos = set(bloqueio.get("codigos") or [])
+                    if not _permite_override_precheck(codigos, forcar_divergencia_formato):
+                        bloqueadas += 1
+                        bloqueios.append(bloqueio)
+                        continue
+
                 venda.validacao_override = True
                 venda.status_validacao = STG_Venda.STATUS_APROVADO
                 venda.status_tratamento = STG_Venda.TRATAMENTO_VALIDADO
@@ -1053,6 +1473,8 @@ def aplicar_tratamento_divergencias_lote(
         "detail": "Tratamento em lote concluido.",
         "processadas": processadas,
         "ignoradas": ignoradas,
+        "bloqueadas": bloqueadas,
+        "bloqueios": bloqueios[:200],
         "kpis": validation.kpis,
     }
 
@@ -1066,6 +1488,7 @@ def _importar_planilhas_auditoria_sync(payloads: list[dict[str, Any]], job_id: s
     started_at = perf_counter()
     imported_records: list[STG_AuditoriaPlanilha] = []
     import_errors: list[ImportErrorItem] = []
+    erros_precheck_inicial: list[str] = []
 
     total_files = len(payloads)
     parse_started_at = perf_counter()
@@ -1126,6 +1549,21 @@ def _importar_planilhas_auditoria_sync(payloads: list[dict[str, Any]], job_id: s
 
         validation = executar_tripla_validacao(reset_tracking=True)
 
+        candidatas_precheck = list(
+            STG_Venda.objects.filter(status_validacao=STG_Venda.STATUS_APROVADO)
+            .exclude(status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO)
+            .prefetch_related("itens", "pagamentos")
+            .order_by("tipo_documento", "id_legado")
+        )
+        existentes_sot = set(Venda.objects.values_list("tipo_documento", "id_legado"))
+        candidatas_precheck = [
+            venda
+            for venda in candidatas_precheck
+            if (venda.tipo_documento, int(venda.id_legado)) not in existentes_sot
+        ]
+
+        erros_precheck_inicial = _coletar_erros_precheck_consolidacao(candidatas_precheck)
+
     db_and_validation_elapsed_s = perf_counter() - db_started_at
     total_elapsed_s = perf_counter() - started_at
 
@@ -1150,6 +1588,11 @@ def _importar_planilhas_auditoria_sync(payloads: list[dict[str, Any]], job_id: s
             "inconsistencias": validation.inconsistencias,
             "kpis": validation.kpis,
             "pode_aprovar": validation.pode_aprovar,
+        },
+        "precheck_inicial": {
+            "total_inconsistencias": len(erros_precheck_inicial),
+            "inconsistencias": erros_precheck_inicial[:500],
+            "bloqueante_nesta_etapa": False,
         },
     }
 
@@ -1207,11 +1650,72 @@ def start_importacao_planilhas_auditoria(uploads: list[UploadedFile]) -> str:
     return job_id
 
 
-def consolidar_stg_para_sot() -> dict[str, Any]:
-    if STG_Venda.objects.filter(status_validacao=STG_Venda.STATUS_DIVERGENTE).exclude(
-        status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO
-    ).exists():
-        raise ValueError("Existem vendas divergentes na STG. Corrija antes da consolidacao.")
+def limpar_fluxo_reconciliacao() -> dict[str, int]:
+    with transaction.atomic():
+        stg_pagamentos_removidos = STG_PagamentoVenda.objects.count()
+        stg_itens_removidos = STG_ItemVenda.objects.count()
+        stg_vendas_removidas = STG_Venda.objects.count()
+        stg_auditoria_removidas = STG_AuditoriaPlanilha.objects.count()
+
+        STG_PagamentoVenda.objects.all().delete()
+        STG_ItemVenda.objects.all().delete()
+        STG_Venda.objects.all().delete()
+        STG_AuditoriaPlanilha.objects.all().delete()
+
+    return {
+        "stg_vendas_removidas": stg_vendas_removidas,
+        "stg_itens_removidos": stg_itens_removidos,
+        "stg_pagamentos_removidos": stg_pagamentos_removidos,
+        "stg_auditoria_removidas": stg_auditoria_removidas,
+    }
+
+
+def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict[str, Any]:
+    divergentes_pendentes = list(
+        STG_Venda.objects.filter(status_validacao=STG_Venda.STATUS_DIVERGENTE)
+        .exclude(status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO)
+        .prefetch_related("itens", "pagamentos")
+        .order_by("tipo_documento", "id_legado")
+    )
+    divergencias_bloqueantes = []
+    for venda in divergentes_pendentes:
+        motivos_bloqueantes = sorted(_motivos_bloqueantes_consolidacao(venda))
+        if motivos_bloqueantes:
+            divergencias_bloqueantes.append(
+                f"{venda.tipo_documento}#{venda.id_legado}: {', '.join(motivos_bloqueantes)}"
+            )
+
+    if divergencias_bloqueantes:
+        bloqueios_reconciliacao: list[dict[str, Any]] = []
+        motivos_bloqueantes_globais: set[str] = set()
+        for venda in divergentes_pendentes:
+            motivos_bloqueantes = sorted(_motivos_bloqueantes_consolidacao(venda))
+            if not motivos_bloqueantes:
+                continue
+            motivos_bloqueantes_globais.update(motivos_bloqueantes)
+            bloqueios_reconciliacao.append(
+                {
+                    "tipo_documento": venda.tipo_documento,
+                    "id_legado": int(venda.id_legado),
+                    "venda": f"{venda.tipo_documento} #{int(venda.id_legado):06d}",
+                    "erros": [f"{venda.tipo_documento}#{venda.id_legado}: {', '.join(motivos_bloqueantes)}"],
+                    "codigos": motivos_bloqueantes,
+                    "possui_divergencia_formato": "divergencia_formato" in motivos_bloqueantes,
+                    "permite_override": _motivos_reconciliacao_apenas_formato(set(motivos_bloqueantes)),
+                }
+            )
+
+        if not _permite_override_motivos_reconciliacao(
+            motivos_bloqueantes_globais,
+            forcar_divergencia_formato,
+        ):
+            raise ReconciliacaoBloqueioError(
+                "Consolidacao bloqueada por divergencias estruturais na reconciliacao:\n"
+                + "\n".join(f"- {item}" for item in divergencias_bloqueantes[:40]),
+                codigo="consolidacao_bloqueada_divergencia_reconciliacao",
+                bloqueios=bloqueios_reconciliacao[:200],
+                permite_override=_motivos_reconciliacao_apenas_formato(motivos_bloqueantes_globais),
+            )
 
     pendencias = contar_pendencias_validacao()
     if any(pendencias.values()):
@@ -1229,6 +1733,26 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
         .prefetch_related("itens", "pagamentos")
         .order_by("tipo_documento", "id_legado")
     )
+
+    candidatas_divergentes: list[STG_Venda] = []
+    for venda in divergentes_pendentes:
+        motivos_bloqueantes = _motivos_bloqueantes_consolidacao(venda)
+        if not motivos_bloqueantes:
+            candidatas_divergentes.append(venda)
+            continue
+
+        if _permite_override_motivos_reconciliacao(motivos_bloqueantes, forcar_divergencia_formato):
+            candidatas_divergentes.append(venda)
+
+    if candidatas_divergentes:
+        aprovadas.extend(candidatas_divergentes)
+
+    vendas_para_consolidar_por_chave: dict[tuple[str, int], STG_Venda] = {}
+    for venda in aprovadas:
+        chave = (venda.tipo_documento, int(venda.id_legado))
+        vendas_para_consolidar_por_chave[chave] = venda
+
+    aprovadas = list(vendas_para_consolidar_por_chave.values())
 
     if not aprovadas:
         raise ValueError("Nao ha vendas aprovadas na STG para consolidar.")
@@ -1325,6 +1849,16 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
         prefixo = f"{stg_venda.tipo_documento}#{stg_venda.id_legado}"
         erros_venda: list[str] = []
 
+        motivos_bloqueantes_snapshot = sorted(_motivos_bloqueantes_consolidacao(stg_venda))
+        if motivos_bloqueantes_snapshot and not _permite_override_motivos_reconciliacao(
+            set(motivos_bloqueantes_snapshot),
+            forcar_divergencia_formato,
+        ):
+            erros_venda.append(
+                f"{prefixo}: divergencias_bloqueantes_reconciliacao "
+                f"({', '.join(motivos_bloqueantes_snapshot)})"
+            )
+
         itens = itens_por_venda.get(stg_venda.pk, [])
         pagamentos = pagamentos_por_venda.get(stg_venda.pk, [])
         if not itens or not pagamentos:
@@ -1364,9 +1898,13 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
             else:
                 nome_stg = _normalize_identity_text(stg_venda.nome_cliente_legado)
                 nome_sot = _normalize_identity_text(cliente.nome_cliente)
-                if nome_stg and nome_sot and nome_stg != nome_sot:
+                nomes_compativeis, similaridade_cliente = _nomes_clientes_semelhantes(
+                    stg_venda.nome_cliente_legado,
+                    cliente.nome_cliente,
+                )
+                if nome_stg and nome_sot and not nomes_compativeis:
                     erros_venda.append(
-                        f"{prefixo}: cliente_nome_divergente (stg='{stg_venda.nome_cliente_legado}', sot='{cliente.nome_cliente}')"
+                        f"{prefixo}: cliente_nome_divergente (similaridade={similaridade_cliente * 100:.1f}%, stg='{stg_venda.nome_cliente_legado}', sot='{cliente.nome_cliente}')"
                     )
 
         itens_convertidos: list[tuple[STG_ItemVenda, Produto, UnidadeMedida]] = []
@@ -1382,11 +1920,13 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
                 )
                 continue
 
-            nome_stg = _normalize_identity_text(item.nome_produto_legado)
-            nome_sot = _normalize_identity_text(produto.produto)
-            if nome_stg and nome_sot and nome_stg != nome_sot:
+            nomes_compativeis, similaridade_nome = _nomes_produtos_semelhantes(
+                item.nome_produto_legado,
+                produto.produto,
+            )
+            if not nomes_compativeis:
                 erros_venda.append(
-                    f"{prefixo}: produto_nome_divergente (id={item.id_produto_legado}, stg='{item.nome_produto_legado}', sot='{produto.produto}')"
+                    f"{prefixo}: produto_nome_divergente (id={item.id_produto_legado}, similaridade={similaridade_nome * 100:.1f}%, stg='{item.nome_produto_legado}', sot='{produto.produto}')"
                 )
                 continue
 
@@ -1439,7 +1979,18 @@ def consolidar_stg_para_sot() -> dict[str, Any]:
         )
 
     if erros_precheck:
-        raise ValueError(_formatar_erros_precheck(erros_precheck))
+        bloqueios_precheck = _agrupar_erros_precheck_por_venda(erros_precheck)
+        codigos_precheck: set[str] = set()
+        for item in bloqueios_precheck:
+            codigos_precheck.update(item.get("codigos") or [])
+
+        if not _permite_override_precheck(codigos_precheck, forcar_divergencia_formato):
+            raise ReconciliacaoBloqueioError(
+                _formatar_erros_precheck(erros_precheck),
+                codigo="consolidacao_bloqueada_precheck",
+                bloqueios=bloqueios_precheck,
+                permite_override=_codigos_precheck_apenas_formato(codigos_precheck),
+            )
 
     inseridas = 0
     momento_consolidacao = timezone.now()

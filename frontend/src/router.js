@@ -3,11 +3,14 @@ import MainLayout from "@/layouts/MainLayout.vue";
 import ValidacaoPendentes from "@/pages/Validacao/Pendentes.vue";
 import DashboardReconciliacao from "@/pages/Validacao/DashboardReconciliacao.vue";
 import Clientes from "@/pages/Cadastros/Clientes.vue";
+import Compras from "@/pages/Compras/Compras.vue";
 import Fornecedores from "@/pages/Cadastros/Fornecedores.vue";
+import ItensCompra from "@/pages/Compras/ItensCompra.vue";
 import Parametros from "@/pages/Cadastros/Parametros.vue";
 import PlanoContas from "@/pages/Cadastros/PlanoContas.vue";
 import ProdutosOficiais from "@/pages/Cadastros/ProdutosOficiais.vue";
 import SistemaPainel from "@/pages/Sistema/Painel.vue";
+import ReconciliacaoCompras from "@/pages/Compras/ReconciliacaoCompras.vue";
 import ItensVenda from "@/pages/Vendas/ItensVenda.vue";
 import PagamentosVenda from "@/pages/Vendas/PagamentosVenda.vue";
 import Vendas from "@/pages/Vendas/Vendas.vue";
@@ -30,6 +33,21 @@ const routes = [
         path: "validacao/reconciliacao",
         name: "validacao-reconciliacao",
         component: DashboardReconciliacao,
+      },
+      {
+        path: "compras/reconciliacao",
+        name: "compras-reconciliacao",
+        component: ReconciliacaoCompras,
+      },
+      {
+        path: "compras/compras",
+        name: "compras-compras",
+        component: Compras,
+      },
+      {
+        path: "compras/itens",
+        name: "compras-itens",
+        component: ItensCompra,
       },
       {
         path: "cadastros/plano-contas",

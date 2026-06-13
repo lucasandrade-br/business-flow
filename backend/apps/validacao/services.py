@@ -16,10 +16,19 @@ from apps.cadastros.models import (
     TipoVenda,
     UnidadeMedida,
 )
-from apps.integracao.hash_engine import gerar_hash_cliente, gerar_hash_fornecedor, gerar_hash_produto
+from apps.integracao.hash_engine import (
+    gerar_hash_cliente,
+    gerar_hash_fornecedor,
+    gerar_hash_produto,
+    normalizar_texto_tolerante,
+    textos_semelhantes,
+    valores_equivalentes_com_tolerancia,
+)
 from apps.integracao.models import StgClientesNovos, StgFornecedoresNovos, StgProdutosNovos
 
 logger = logging.getLogger(__name__)
+
+LIMIAR_SEMELHANCA_TEXTO = 0.45
 
 
 def _contains_search(haystacks: list[Any], search: str) -> bool:
@@ -29,10 +38,51 @@ def _contains_search(haystacks: list[Any], search: str) -> bool:
     return any(termo in str(valor or "").lower() for valor in haystacks)
 
 
+def _produto_equivalente(item_stg: StgProdutosNovos, item_sot: Produto | None) -> bool:
+    if item_sot is None:
+        return False
+
+    return (
+        str(item_stg.id_produto) == str(item_sot.id_produto)
+        and str(item_stg.gtin or "").strip().upper() == str(item_sot.gtin or "").strip().upper()
+        and str(item_stg.barras or "").strip().upper() == str(item_sot.barras or "").strip().upper()
+        and textos_semelhantes(
+            item_stg.nome,
+            item_sot.produto,
+            limiar=LIMIAR_SEMELHANCA_TEXTO,
+            ordenar_tokens=True,
+        )
+        and valores_equivalentes_com_tolerancia(item_stg.custo, item_sot.custo)
+        and valores_equivalentes_com_tolerancia(item_stg.valor_venda, item_sot.venda)
+        and normalizar_texto_tolerante(item_stg.status) == normalizar_texto_tolerante(item_sot.status)
+    )
+
+
+def _cliente_equivalente(item_stg: StgClientesNovos, item_sot: Cliente | None) -> bool:
+    if item_sot is None:
+        return False
+
+    return (
+        str(item_stg.id_cliente) == str(item_sot.id_cliente)
+        and textos_semelhantes(item_stg.cliente, item_sot.nome_cliente, limiar=LIMIAR_SEMELHANCA_TEXTO)
+        and textos_semelhantes(item_stg.raz_social, item_sot.raz_social, limiar=LIMIAR_SEMELHANCA_TEXTO)
+    )
+
+
+def _fornecedor_equivalente(item_stg: StgFornecedoresNovos, item_sot: Fornecedor | None) -> bool:
+    if item_sot is None:
+        return False
+
+    return (
+        str(item_stg.id_fornecedor) == str(item_sot.id_fornecedor)
+        and textos_semelhantes(item_stg.fantasia, item_sot.nome_fornecedor, limiar=LIMIAR_SEMELHANCA_TEXTO)
+        and textos_semelhantes(item_stg.raz_social, item_sot.raz_social, limiar=LIMIAR_SEMELHANCA_TEXTO)
+    )
+
+
 def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
     try:
         pendentes = list(StgProdutosNovos.objects.all().order_by("id_produto"))
-        sot_hashes = dict(Produto.objects.values_list("id_produto", "hash_md5"))
 
         produto_ids = [item.id_produto for item in pendentes]
         produtos_sot = {
@@ -60,49 +110,50 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
 
         resultado: list[dict[str, Any]] = []
         for item in pendentes:
-            sot_hash = sot_hashes.get(item.id_produto)
-            if sot_hash is None or (item.hash_md5 or "") != (sot_hash or ""):
-                produto_sot = produtos_sot.get(item.id_produto)
-                tipo_pendencia = "ATUALIZACAO" if produto_sot is not None else "NOVO"
-                dados_sot: dict[str, Any] | None = None
+            produto_sot = produtos_sot.get(item.id_produto)
+            if _produto_equivalente(item, produto_sot):
+                continue
 
-                if produto_sot is not None:
-                    dados_sot = {
-                        "nome": produto_sot.produto,
-                        "gtin": produto_sot.gtin,
-                        "barras": produto_sot.barras,
-                        "custo": produto_sot.custo,
-                        "valor_venda": produto_sot.venda,
-                        "status": produto_sot.status,
-                        "markup": produto_sot.markup,
-                        "markup_inv": produto_sot.markup_inv,
-                        "perda": produto_sot.perda,
-                        "fisico": produto_sot.fisico,
-                        "aliqefc": produto_sot.aliqefc,
-                        "cod_g3n": produto_sot.cod_g3n,
-                        "cod_rel": produto_sot.cod_rel,
-                        "usuario": produto_sot.usuario,
-                        "codigo": "",
-                        "id_und_medida": produto_sot.id_und_medida_id,
-                        "categorias_ids": list(produto_sot.categorias.values_list("id_conta", flat=True)),
-                    }
+            tipo_pendencia = "ATUALIZACAO" if produto_sot is not None else "NOVO"
+            dados_sot: dict[str, Any] | None = None
 
-                resultado.append(
-                    {
-                        "id_produto": item.id_produto,
-                        "nome": item.nome,
-                        "gtin": item.gtin,
-                        "barras": item.barras,
-                        "unidade_comercial": item.unidade_comecial,
-                        "custo": item.custo,
-                        "valor_venda": item.valor_venda,
-                        "dt_ultimo_movimento": item.dt_ultimo_movimento,
-                        "status": item.status,
-                        "unidade_sugerida_id": resolve_unidade_sugerida(item.unidade_comecial),
-                        "tipo_pendencia": tipo_pendencia,
-                        "dados_sot": dados_sot,
-                    }
-                )
+            if produto_sot is not None:
+                dados_sot = {
+                    "nome": produto_sot.produto,
+                    "gtin": produto_sot.gtin,
+                    "barras": produto_sot.barras,
+                    "custo": produto_sot.custo,
+                    "valor_venda": produto_sot.venda,
+                    "status": produto_sot.status,
+                    "markup": produto_sot.markup,
+                    "markup_inv": produto_sot.markup_inv,
+                    "perda": produto_sot.perda,
+                    "fisico": produto_sot.fisico,
+                    "aliqefc": produto_sot.aliqefc,
+                    "cod_g3n": produto_sot.cod_g3n,
+                    "cod_rel": produto_sot.cod_rel,
+                    "usuario": produto_sot.usuario,
+                    "codigo": "",
+                    "id_und_medida": produto_sot.id_und_medida_id,
+                    "categorias_ids": list(produto_sot.categorias.values_list("id_conta", flat=True)),
+                }
+
+            resultado.append(
+                {
+                    "id_produto": item.id_produto,
+                    "nome": item.nome,
+                    "gtin": item.gtin,
+                    "barras": item.barras,
+                    "unidade_comercial": item.unidade_comecial,
+                    "custo": item.custo,
+                    "valor_venda": item.valor_venda,
+                    "dt_ultimo_movimento": item.dt_ultimo_movimento,
+                    "status": item.status,
+                    "unidade_sugerida_id": resolve_unidade_sugerida(item.unidade_comecial),
+                    "tipo_pendencia": tipo_pendencia,
+                    "dados_sot": dados_sot,
+                }
+            )
 
         if not search:
             return resultado
@@ -192,7 +243,6 @@ def aprovar_produto_novo(dados_validados: dict[str, Any]) -> None:
 def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
     try:
         pendentes = list(StgClientesNovos.objects.all().order_by("id_cliente"))
-        sot_hashes = dict(Cliente.objects.values_list("id_cliente", "hash_md5"))
         clientes_sot = {
             item.id_cliente: item
             for item in Cliente.objects.select_related("id_grupo", "id_tipo_venda").filter(
@@ -202,31 +252,32 @@ def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
 
         resultado: list[dict[str, Any]] = []
         for item in pendentes:
-            sot_hash = sot_hashes.get(item.id_cliente)
-            if sot_hash is None or (item.hash_md5 or "") != (sot_hash or ""):
-                cliente_sot = clientes_sot.get(item.id_cliente)
-                tipo_pendencia = "ATUALIZACAO" if cliente_sot is not None else "NOVO"
-                dados_sot: dict[str, Any] | None = None
-                if cliente_sot is not None:
-                    dados_sot = {
-                        "id_cliente": cliente_sot.id_cliente,
-                        "cliente": cliente_sot.nome_cliente,
-                        "nome_cliente": cliente_sot.nome_cliente,
-                        "raz_social": cliente_sot.raz_social,
-                        "prazo_cob": cliente_sot.prazo_cob,
-                        "id_grupo": cliente_sot.id_grupo_id,
-                        "id_tipo_venda": cliente_sot.id_tipo_venda_id,
-                    }
+            cliente_sot = clientes_sot.get(item.id_cliente)
+            if _cliente_equivalente(item, cliente_sot):
+                continue
 
-                resultado.append(
-                    {
-                        "id_cliente": item.id_cliente,
-                        "nome_cliente": item.cliente,
-                        "raz_social": item.raz_social,
-                        "tipo_pendencia": tipo_pendencia,
-                        "dados_sot": dados_sot,
-                    }
-                )
+            tipo_pendencia = "ATUALIZACAO" if cliente_sot is not None else "NOVO"
+            dados_sot: dict[str, Any] | None = None
+            if cliente_sot is not None:
+                dados_sot = {
+                    "id_cliente": cliente_sot.id_cliente,
+                    "cliente": cliente_sot.nome_cliente,
+                    "nome_cliente": cliente_sot.nome_cliente,
+                    "raz_social": cliente_sot.raz_social,
+                    "prazo_cob": cliente_sot.prazo_cob,
+                    "id_grupo": cliente_sot.id_grupo_id,
+                    "id_tipo_venda": cliente_sot.id_tipo_venda_id,
+                }
+
+            resultado.append(
+                {
+                    "id_cliente": item.id_cliente,
+                    "nome_cliente": item.cliente,
+                    "raz_social": item.raz_social,
+                    "tipo_pendencia": tipo_pendencia,
+                    "dados_sot": dados_sot,
+                }
+            )
 
         if not search:
             return resultado
@@ -244,7 +295,6 @@ def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
 def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
     try:
         pendentes = list(StgFornecedoresNovos.objects.all().order_by("id_fornecedor"))
-        sot_hashes = dict(Fornecedor.objects.values_list("id_fornecedor", "hash_md5"))
         fornecedores_sot = {
             item.id_fornecedor: item
             for item in Fornecedor.objects.select_related("id_codsis").filter(
@@ -254,34 +304,35 @@ def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
 
         resultado: list[dict[str, Any]] = []
         for item in pendentes:
-            sot_hash = sot_hashes.get(item.id_fornecedor)
-            if sot_hash is None or (item.hash_md5 or "") != (sot_hash or ""):
-                fornecedor_sot = fornecedores_sot.get(item.id_fornecedor)
-                tipo_pendencia = "ATUALIZACAO" if fornecedor_sot is not None else "NOVO"
-                dados_sot: dict[str, Any] | None = None
-                if fornecedor_sot is not None:
-                    dados_sot = {
-                        "id_fornecedor": fornecedor_sot.id_fornecedor,
-                        "fantasia": fornecedor_sot.nome_fornecedor,
-                        "nome_fornecedor": fornecedor_sot.nome_fornecedor,
-                        "raz_social": fornecedor_sot.raz_social,
-                        "dt_cadastro": fornecedor_sot.dt_cadastro,
-                        "id_codsis": fornecedor_sot.id_codsis_id,
-                        "codigo": fornecedor_sot.codigo,
-                        "operador": fornecedor_sot.operador,
-                        "usuario": fornecedor_sot.usuario,
-                    }
+            fornecedor_sot = fornecedores_sot.get(item.id_fornecedor)
+            if _fornecedor_equivalente(item, fornecedor_sot):
+                continue
 
-                resultado.append(
-                    {
-                        "id_fornecedor": item.id_fornecedor,
-                        "nome_fornecedor": item.fantasia,
-                        "raz_social": item.raz_social,
-                        "dt_cadastro": item.dt_cadastro,
-                        "tipo_pendencia": tipo_pendencia,
-                        "dados_sot": dados_sot,
-                    }
-                )
+            tipo_pendencia = "ATUALIZACAO" if fornecedor_sot is not None else "NOVO"
+            dados_sot: dict[str, Any] | None = None
+            if fornecedor_sot is not None:
+                dados_sot = {
+                    "id_fornecedor": fornecedor_sot.id_fornecedor,
+                    "fantasia": fornecedor_sot.nome_fornecedor,
+                    "nome_fornecedor": fornecedor_sot.nome_fornecedor,
+                    "raz_social": fornecedor_sot.raz_social,
+                    "dt_cadastro": fornecedor_sot.dt_cadastro,
+                    "id_codsis": fornecedor_sot.id_codsis_id,
+                    "codigo": fornecedor_sot.codigo,
+                    "operador": fornecedor_sot.operador,
+                    "usuario": fornecedor_sot.usuario,
+                }
+
+            resultado.append(
+                {
+                    "id_fornecedor": item.id_fornecedor,
+                    "nome_fornecedor": item.fantasia,
+                    "raz_social": item.raz_social,
+                    "dt_cadastro": item.dt_cadastro,
+                    "tipo_pendencia": tipo_pendencia,
+                    "dados_sot": dados_sot,
+                }
+            )
 
         if not search:
             return resultado

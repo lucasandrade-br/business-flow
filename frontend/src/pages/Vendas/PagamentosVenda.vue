@@ -27,8 +27,7 @@
             />
           </div>
 
-          <input v-model="dataInicial" type="date" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs" />
-          <input v-model="dataFinal" type="date" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs" />
+          <DateRangeField v-model:start="dataInicial" v-model:end="dataFinal" />
 
           <select v-model="tipoDocumento" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
             <option value="">Todos os Tipos</option>
@@ -36,19 +35,27 @@
             <option value="DAV">DAV</option>
           </select>
 
-          <select v-model="clienteId" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-            <option value="">Todos os Clientes</option>
-            <option v-for="item in clientesOptions" :key="item.value" :value="String(item.value)">
-              {{ item.label }}
-            </option>
-          </select>
+          <RemoteSearchSelect
+            v-model="clienteId"
+            :endpoint="`${API_BASE_URL}/api/cadastros/clientes`"
+            value-field="id_cliente"
+            :format-option-label="formatClienteOption"
+            all-label="Todos os Clientes"
+            search-placeholder="Pesquisar cliente por nome..."
+            :min-chars="2"
+            :limit="20"
+          />
 
-          <select v-model="produtoId" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-            <option value="">Todos os Produtos</option>
-            <option v-for="item in produtosOptions" :key="item.value" :value="String(item.value)">
-              {{ item.label }}
-            </option>
-          </select>
+          <RemoteSearchSelect
+            v-model="produtoId"
+            :endpoint="`${API_BASE_URL}/api/cadastros/produtos`"
+            value-field="id_produto"
+            :format-option-label="formatProdutoOption"
+            all-label="Todos os Produtos"
+            search-placeholder="Pesquisar produto por nome..."
+            :min-chars="2"
+            :limit="20"
+          />
 
           <select v-model="formaPagamentoId" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
             <option value="">Todos os Pagamentos</option>
@@ -82,6 +89,10 @@
         </div>
       </template>
 
+      <template #cell-venda_ref="{ row }">
+        <span class="font-semibold text-[#373435]">{{ formatVendaRef(row) }}</span>
+      </template>
+
       <template #cell-valor_pago="{ row }">
         {{ asMoney(row.valor_pago) }}
       </template>
@@ -107,28 +118,7 @@
       </template>
     </BaseTable>
 
-    <BaseModal
-      v-model="showDetailsModal"
-      title="Detalhes do Pagamento"
-      description="Informacoes detalhadas do pagamento selecionado."
-    >
-      <div v-if="selectedRow" class="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
-        <div v-for="field in detailFields" :key="field.label" class="rounded-md border border-gray-200 p-2">
-          <p class="text-gray-500">{{ field.label }}</p>
-          <p class="font-medium text-gray-800">{{ field.value }}</p>
-        </div>
-      </div>
-
-      <template #footer>
-        <button
-          type="button"
-          class="rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
-          @click="showDetailsModal = false"
-        >
-          Fechar
-        </button>
-      </template>
-    </BaseModal>
+    <VendaDetailsModal v-model="showDetailsModal" :venda-id="activeVendaId" />
 
     <ExportModal
       v-model="showExportModal"
@@ -142,21 +132,20 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { Download, Eye, Search } from "lucide-vue-next";
-import BaseModal from "@/components/ui/BaseModal.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 import ExportModal from "@/components/ui/ExportModal.vue";
+import RemoteSearchSelect from "@/components/ui/RemoteSearchSelect.vue";
+import VendaDetailsModal from "@/components/vendas/VendaDetailsModal.vue";
+import DateRangeField from "@/components/ui/DateRangeField.vue";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 const endpoint = `${API_BASE_URL}/api/vendas/pagamentos`;
 
 const columns = [
-  { key: "id_pagamento_venda", label: "ID Pgto" },
-  { key: "id_legado_venda", label: "Venda" },
-  { key: "tipo_documento", label: "Tipo" },
+  { key: "venda_ref", label: "Venda" },
   { key: "data_venda", label: "Data" },
-  { key: "cliente_nome", label: "Cliente" },
   { key: "forma_pagamento_descricao", label: "Forma" },
   { key: "valor_pago", label: "Valor" },
   { key: "estorno", label: "Estorno" },
@@ -185,33 +174,30 @@ const clienteId = ref("");
 const produtoId = ref("");
 const formaPagamentoId = ref("");
 
-const clientesOptions = ref([]);
-const produtosOptions = ref([]);
 const formasOptions = ref([]);
 
 const showDetailsModal = ref(false);
-const selectedRow = ref(null);
+const activeVendaId = ref(null);
 
 const showExportModal = ref(false);
 const exporting = ref(false);
 const exportError = ref("");
 
-const detailFields = computed(() => {
-  const row = selectedRow.value;
-  if (!row) return [];
-  return [
-    { label: "ID Pagamento", value: row.id_pagamento_venda },
-    { label: "Venda", value: `${row.id_legado_venda} (${row.tipo_documento})` },
-    { label: "Data Venda", value: row.data_venda || "-" },
-    { label: "Cliente", value: row.cliente_nome || "-" },
-    { label: "Forma", value: row.forma_pagamento_descricao || "-" },
-    { label: "Valor", value: asMoney(row.valor_pago) },
-    { label: "Estorno", value: row.estorno ? "Sim" : "Nao" },
-  ];
-});
-
 function asMoney(value) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatVendaRef(row) {
+  const tipo = String(row?.tipo_documento || "").toUpperCase();
+  return `${tipo} #${row?.id_legado_venda ?? ""}`;
+}
+
+function formatClienteOption(item) {
+  return `${item.id_cliente} - ${item.nome_cliente}`;
+}
+
+function formatProdutoOption(item) {
+  return `${item.id_produto} - ${item.produto}`;
 }
 
 function getFilenameFromDisposition(disposition, fallback) {
@@ -265,36 +251,6 @@ async function load(url = endpoint) {
   }
 }
 
-async function loadClientes() {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/cadastros/clientes?limit=200`);
-    if (!response.ok) throw new Error(`Erro ${response.status}`);
-    const data = await response.json();
-    clientesOptions.value = (data.results || []).map((item) => ({
-      value: item.id_cliente,
-      label: `${item.id_cliente} - ${item.nome_cliente}`,
-    }));
-  } catch (err) {
-    console.error(err);
-    clientesOptions.value = [];
-  }
-}
-
-async function loadProdutos() {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/cadastros/produtos?limit=200`);
-    if (!response.ok) throw new Error(`Erro ${response.status}`);
-    const data = await response.json();
-    produtosOptions.value = (data.results || []).map((item) => ({
-      value: item.id_produto,
-      label: `${item.id_produto} - ${item.produto}`,
-    }));
-  } catch (err) {
-    console.error(err);
-    produtosOptions.value = [];
-  }
-}
-
 async function loadFormasPagamento() {
   try {
     const response = await fetch(`${API_BASE_URL}/api/cadastros/formas-pagamento?limit=200`);
@@ -334,7 +290,7 @@ function clearFilters() {
 }
 
 function openDetails(row) {
-  selectedRow.value = row;
+  activeVendaId.value = row.venda;
   showDetailsModal.value = true;
 }
 
@@ -401,8 +357,6 @@ async function exportData({ tipo, colunas, query_sql, formato, salvar_nome }) {
 
 onMounted(() => {
   load();
-  loadClientes();
-  loadProdutos();
   loadFormasPagamento();
 });
 </script>

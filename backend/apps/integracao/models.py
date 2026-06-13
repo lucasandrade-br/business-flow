@@ -39,3 +39,29 @@ class StgClientesNovos(models.Model):
 
     class Meta:
         db_table = "stg_clientes_novos"
+
+
+class FirebirdConnectionConfig(models.Model):
+    MODO_FIXO = "FIXED"
+    MODO_DINAMICO = "DYNAMIC"
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    modo_localizacao = models.CharField(
+        max_length=10,
+        choices=[
+            (MODO_FIXO, "Fixo"),
+            (MODO_DINAMICO, "Dinamico"),
+        ],
+        default=MODO_FIXO,
+    )
+    caminho_fixo = models.CharField(max_length=1024, blank=True, default="")
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "firebird_connection_config"
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

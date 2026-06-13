@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Aliquota, Cliente, FormaPagamento, FormaPagamentoMapeamento, FormaPagamentoOrigem, Fornecedor, GrupoCliente, PlanoConta, Produto, TemplateExportacao, TipoVenda, UnidadeMedida
+from apps.compras.models import Compra, ItemCompra
 from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
 from .serializers import (
 	AliquotaSerializer,
@@ -502,6 +503,40 @@ class ExportacaoUniversalAPIView(APIView):
 			queryset = queryset.filter(venda__itens__produto_id=produto_id).distinct()
 		return queryset
 
+	def _apply_compra_filters(self, queryset, filtros: dict):
+		queryset = self._apply_date_range_filter(queryset, field_name="data_emissao", filtros=filtros)
+
+		fornecedor_id = self._to_int_or_none(filtros.get("fornecedor_id"))
+		if fornecedor_id is not None:
+			queryset = queryset.filter(fornecedor_id=fornecedor_id)
+
+		produto_id = self._to_int_or_none(filtros.get("produto_id"))
+		if produto_id is not None:
+			queryset = queryset.filter(itens__produto_id=produto_id).distinct()
+
+		nfe_status = str(filtros.get("nfe_status") or "").strip().upper()
+		if nfe_status:
+			queryset = queryset.filter(nfe_status=nfe_status)
+
+		return queryset
+
+	def _apply_item_compra_filters(self, queryset, filtros: dict):
+		queryset = self._apply_date_range_filter(queryset, field_name="compra__data_emissao", filtros=filtros)
+
+		fornecedor_id = self._to_int_or_none(filtros.get("fornecedor_id"))
+		if fornecedor_id is not None:
+			queryset = queryset.filter(compra__fornecedor_id=fornecedor_id)
+
+		produto_id = self._to_int_or_none(filtros.get("produto_id"))
+		if produto_id is not None:
+			queryset = queryset.filter(produto_id=produto_id)
+
+		nfe_status = str(filtros.get("nfe_status") or "").strip().upper()
+		if nfe_status:
+			queryset = queryset.filter(compra__nfe_status=nfe_status)
+
+		return queryset
+
 	TABLE_CONFIG = {
 		"produtos": {
 			"queryset": Produto.objects.select_related("id_und_medida").prefetch_related("categorias").all(),
@@ -538,6 +573,18 @@ class ExportacaoUniversalAPIView(APIView):
 			"search_fields": ["venda__id_legado", "venda__tipo_documento", "forma_pagamento__descricao", "venda__cliente__nome_cliente"],
 			"allowed_columns": {field.name for field in PagamentoVenda._meta.fields},
 			"filter_fn": lambda self, queryset, filtros: self._apply_pagamento_filters(queryset, filtros),
+		},
+		"compras": {
+			"queryset": Compra.objects.select_related("fornecedor").all(),
+			"search_fields": ["id_legado", "nota", "nfe_status", "fornecedor__nome_fornecedor"],
+			"allowed_columns": {field.name for field in Compra._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: self._apply_compra_filters(queryset, filtros),
+		},
+		"itens_compra": {
+			"queryset": ItemCompra.objects.select_related("compra", "produto", "unidade_medida").all(),
+			"search_fields": ["compra__id_legado", "compra__nota", "compra__nfe_status", "compra__fornecedor__nome_fornecedor", "produto__produto"],
+			"allowed_columns": {field.name for field in ItemCompra._meta.fields},
+			"filter_fn": lambda self, queryset, filtros: self._apply_item_compra_filters(queryset, filtros),
 		},
 	}
 

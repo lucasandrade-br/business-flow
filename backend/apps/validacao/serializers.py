@@ -5,6 +5,24 @@ from decimal import Decimal
 from rest_framework import serializers
 
 
+class DivergenciaCampoSerializer(serializers.Serializer):
+    campo = serializers.CharField()
+    label = serializers.CharField()
+    valor_sor = serializers.JSONField(required=False, allow_null=True)
+    valor_sot = serializers.JSONField(required=False, allow_null=True)
+    gravidade = serializers.ChoiceField(choices=["alta", "media", "leve"])
+    observacao = serializers.CharField(required=False, allow_blank=True)
+
+
+class DivergenciaResumoSerializer(serializers.Serializer):
+    tipo = serializers.ChoiceField(choices=["NOVO", "ATUALIZACAO"])
+    total = serializers.IntegerField(min_value=0)
+    alta = serializers.IntegerField(min_value=0)
+    media = serializers.IntegerField(min_value=0)
+    leve = serializers.IntegerField(min_value=0)
+    campos = serializers.ListField(child=serializers.CharField(), required=False, default=list)
+
+
 class ProdutoPendenteSerializer(serializers.Serializer):
     id_produto = serializers.IntegerField()
     nome = serializers.CharField()
@@ -18,6 +36,8 @@ class ProdutoPendenteSerializer(serializers.Serializer):
     unidade_sugerida_id = serializers.IntegerField(required=False, allow_null=True)
     tipo_pendencia = serializers.ChoiceField(choices=["NOVO", "ATUALIZACAO"], required=False)
     dados_sot = serializers.JSONField(required=False, allow_null=True)
+    divergencias = DivergenciaCampoSerializer(many=True, required=False, default=list)
+    divergencias_resumo = DivergenciaResumoSerializer(required=False, allow_null=True)
 
 
 class AprovarProdutoSerializer(serializers.Serializer):
@@ -71,6 +91,8 @@ class ClientePendenteSerializer(serializers.Serializer):
     raz_social = serializers.CharField(required=False, allow_blank=True)
     tipo_pendencia = serializers.ChoiceField(choices=["NOVO", "ATUALIZACAO"], required=False)
     dados_sot = serializers.JSONField(required=False, allow_null=True)
+    divergencias = DivergenciaCampoSerializer(many=True, required=False, default=list)
+    divergencias_resumo = DivergenciaResumoSerializer(required=False, allow_null=True)
 
 
 class AprovarClienteSerializer(serializers.Serializer):
@@ -89,6 +111,8 @@ class FornecedorPendenteSerializer(serializers.Serializer):
     dt_cadastro = serializers.DateField(required=False, allow_null=True)
     tipo_pendencia = serializers.ChoiceField(choices=["NOVO", "ATUALIZACAO"], required=False)
     dados_sot = serializers.JSONField(required=False, allow_null=True)
+    divergencias = DivergenciaCampoSerializer(many=True, required=False, default=list)
+    divergencias_resumo = DivergenciaResumoSerializer(required=False, allow_null=True)
 
 
 class AprovarFornecedorSerializer(serializers.Serializer):

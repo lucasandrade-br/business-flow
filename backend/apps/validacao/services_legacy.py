@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from datetime import date
 
@@ -16,10 +17,243 @@ from apps.cadastros.models import (
     TipoVenda,
     UnidadeMedida,
 )
-from apps.integracao.hash_engine import gerar_hash_cliente, gerar_hash_fornecedor, gerar_hash_produto
+from apps.integracao.hash_engine import (
+    gerar_hash_cliente,
+    gerar_hash_fornecedor,
+    gerar_hash_produto,
+    normalizar_texto_tolerante,
+    percentual_semelhanca_textual,
+    valores_equivalentes_com_tolerancia,
+)
 from apps.integracao.models import StgClientesNovos, StgFornecedoresNovos, StgProdutosNovos
 
 logger = logging.getLogger(__name__)
+
+LIMIAR_SEMELHANCA_TEXTO = 0.8
+
+
+def _to_decimal_safe(value: Any) -> Decimal:
+    if value is None or value == "":
+        return Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value).strip().replace(",", "."))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+
+def _nova_divergencia(
+    *,
+    campo: str,
+    label: str,
+    valor_sor: Any,
+    valor_sot: Any,
+    gravidade: str,
+    observacao: str = "",
+) -> dict[str, Any]:
+    return {
+        "campo": campo,
+        "label": label,
+        "valor_sor": valor_sor,
+        "valor_sot": valor_sot,
+        "gravidade": gravidade,
+        "observacao": observacao,
+    }
+
+
+
+
+def _gravidade_por_semelhanca(percentual: float) -> str:
+    if percentual < 0.5:
+        return "alta"
+    if percentual < LIMIAR_SEMELHANCA_TEXTO:
+        return "media"
+    return "leve"
+
+
+def _coletar_divergencias_produto(item_stg: StgProdutosNovos, item_sot: Produto | None) -> list[dict[str, Any]]:
+    if item_sot is None:
+        return []
+
+    divergencias: list[dict[str, Any]] = []
+
+    gtin_stg = str(item_stg.gtin or "").strip().upper()
+    gtin_sot = str(item_sot.gtin or "").strip().upper()
+    if gtin_stg != gtin_sot:
+        divergencias.append(
+            _nova_divergencia(
+                campo="gtin",
+                label="GTIN",
+                valor_sor=item_stg.gtin,
+                valor_sot=item_sot.gtin,
+                gravidade="media",
+            )
+        )
+
+    barras_stg = str(item_stg.barras or "").strip().upper()
+    barras_sot = str(item_sot.barras or "").strip().upper()
+    if barras_stg != barras_sot:
+        divergencias.append(
+            _nova_divergencia(
+                campo="barras",
+                label="Barras",
+                valor_sor=item_stg.barras,
+                valor_sot=item_sot.barras,
+                gravidade="media",
+            )
+        )
+
+    similaridade_nome = percentual_semelhanca_textual(item_stg.nome, item_sot.produto, ordenar_tokens=True)
+    if similaridade_nome < LIMIAR_SEMELHANCA_TEXTO:
+        divergencias.append(
+            _nova_divergencia(
+                campo="nome",
+                label="Nome",
+                valor_sor=item_stg.nome,
+                valor_sot=item_sot.produto,
+                gravidade=_gravidade_por_semelhanca(similaridade_nome),
+                observacao=f"Semelhanca: {similaridade_nome * 100:.1f}%",
+            )
+        )
+
+    custo_stg = _to_decimal_safe(item_stg.custo)
+    custo_sot = _to_decimal_safe(item_sot.custo)
+    diff_custo = abs(custo_stg - custo_sot)
+    if not valores_equivalentes_com_tolerancia(custo_stg, custo_sot):
+        divergencias.append(
+            _nova_divergencia(
+                campo="custo",
+                label="Custo",
+                valor_sor=str(item_stg.custo),
+                valor_sot=str(item_sot.custo),
+                gravidade="alta" if diff_custo >= Decimal("1") else "media",
+                observacao=f"Diferenca: {diff_custo:.6f}",
+            )
+        )
+
+    venda_stg = _to_decimal_safe(item_stg.valor_venda)
+    venda_sot = _to_decimal_safe(item_sot.venda)
+    diff_venda = abs(venda_stg - venda_sot)
+    if not valores_equivalentes_com_tolerancia(venda_stg, venda_sot):
+        divergencias.append(
+            _nova_divergencia(
+                campo="valor_venda",
+                label="Venda",
+                valor_sor=str(item_stg.valor_venda),
+                valor_sot=str(item_sot.venda),
+                gravidade="alta" if diff_venda >= Decimal("1") else "media",
+                observacao=f"Diferenca: {diff_venda:.6f}",
+            )
+        )
+
+    status_stg = normalizar_texto_tolerante(item_stg.status)
+    status_sot = normalizar_texto_tolerante(item_sot.status)
+    if status_stg != status_sot:
+        divergencias.append(
+            _nova_divergencia(
+                campo="status",
+                label="Status",
+                valor_sor=item_stg.status,
+                valor_sot=item_sot.status,
+                gravidade="media",
+            )
+        )
+
+    return divergencias
+
+
+def _coletar_divergencias_cliente(item_stg: StgClientesNovos, item_sot: Cliente | None) -> list[dict[str, Any]]:
+    if item_sot is None:
+        return []
+
+    divergencias: list[dict[str, Any]] = []
+
+    similaridade_nome = percentual_semelhanca_textual(item_stg.cliente, item_sot.nome_cliente)
+    if similaridade_nome < LIMIAR_SEMELHANCA_TEXTO:
+        divergencias.append(
+            _nova_divergencia(
+                campo="nome_cliente",
+                label="Nome",
+                valor_sor=item_stg.cliente,
+                valor_sot=item_sot.nome_cliente,
+                gravidade=_gravidade_por_semelhanca(similaridade_nome),
+                observacao=f"Semelhanca: {similaridade_nome * 100:.1f}%",
+            )
+        )
+
+    similaridade_razao = percentual_semelhanca_textual(item_stg.raz_social, item_sot.raz_social)
+    if similaridade_razao < LIMIAR_SEMELHANCA_TEXTO:
+        divergencias.append(
+            _nova_divergencia(
+                campo="raz_social",
+                label="Razao Social",
+                valor_sor=item_stg.raz_social,
+                valor_sot=item_sot.raz_social,
+                gravidade=_gravidade_por_semelhanca(similaridade_razao),
+                observacao=f"Semelhanca: {similaridade_razao * 100:.1f}%",
+            )
+        )
+
+    return divergencias
+
+
+def _coletar_divergencias_fornecedor(item_stg: StgFornecedoresNovos, item_sot: Fornecedor | None) -> list[dict[str, Any]]:
+    if item_sot is None:
+        return []
+
+    divergencias: list[dict[str, Any]] = []
+
+    similaridade_nome = percentual_semelhanca_textual(item_stg.fantasia, item_sot.nome_fornecedor)
+    if similaridade_nome < LIMIAR_SEMELHANCA_TEXTO:
+        divergencias.append(
+            _nova_divergencia(
+                campo="nome_fornecedor",
+                label="Nome",
+                valor_sor=item_stg.fantasia,
+                valor_sot=item_sot.nome_fornecedor,
+                gravidade=_gravidade_por_semelhanca(similaridade_nome),
+                observacao=f"Semelhanca: {similaridade_nome * 100:.1f}%",
+            )
+        )
+
+    similaridade_razao = percentual_semelhanca_textual(item_stg.raz_social, item_sot.raz_social)
+    if similaridade_razao < LIMIAR_SEMELHANCA_TEXTO:
+        divergencias.append(
+            _nova_divergencia(
+                campo="raz_social",
+                label="Razao Social",
+                valor_sor=item_stg.raz_social,
+                valor_sot=item_sot.raz_social,
+                gravidade=_gravidade_por_semelhanca(similaridade_razao),
+                observacao=f"Semelhanca: {similaridade_razao * 100:.1f}%",
+            )
+        )
+
+    return divergencias
+
+
+def _montar_resumo_divergencias(divergencias: list[dict[str, Any]], tipo_pendencia: str) -> dict[str, Any]:
+    severidades = {"alta": 0, "media": 0, "leve": 0}
+    campos: list[str] = []
+
+    for item in divergencias:
+        gravidade = str(item.get("gravidade") or "").strip().lower()
+        if gravidade in severidades:
+            severidades[gravidade] += 1
+
+        label = str(item.get("label") or "").strip()
+        if label:
+            campos.append(label)
+
+    return {
+        "tipo": tipo_pendencia,
+        "total": len(divergencias),
+        "alta": severidades["alta"],
+        "media": severidades["media"],
+        "leve": severidades["leve"],
+        "campos": sorted(set(campos)),
+    }
 
 
 def _contains_search(haystacks: list[Any], search: str) -> bool:
@@ -29,54 +263,69 @@ def _contains_search(haystacks: list[Any], search: str) -> bool:
     return any(termo in str(valor or "").lower() for valor in haystacks)
 
 
-def _is_pendente_por_hash(*, stg_hash: str | None, sot_hash: str | None) -> bool:
-    return sot_hash is None or (stg_hash or "") != (sot_hash or "")
+def _produto_equivalente(item_stg: StgProdutosNovos, item_sot: Produto | None) -> bool:
+    return item_sot is not None and len(_coletar_divergencias_produto(item_stg, item_sot)) == 0
+
+
+def _cliente_equivalente(item_stg: StgClientesNovos, item_sot: Cliente | None) -> bool:
+    return item_sot is not None and len(_coletar_divergencias_cliente(item_stg, item_sot)) == 0
+
+
+def _fornecedor_equivalente(item_stg: StgFornecedoresNovos, item_sot: Fornecedor | None) -> bool:
+    return item_sot is not None and len(_coletar_divergencias_fornecedor(item_stg, item_sot)) == 0
 
 
 def contar_produtos_pendentes_validacao() -> int:
-    stg_items = list(StgProdutosNovos.objects.values_list("id_produto", "hash_md5"))
+    stg_items = list(StgProdutosNovos.objects.all())
     if not stg_items:
         return 0
 
-    produto_ids = [item_id for item_id, _ in stg_items]
-    sot_hashes = dict(Produto.objects.filter(id_produto__in=produto_ids).values_list("id_produto", "hash_md5"))
+    produto_ids = [item.id_produto for item in stg_items]
+    sot_por_id = {
+        item.id_produto: item
+        for item in Produto.objects.filter(id_produto__in=produto_ids)
+    }
 
     return sum(
         1
-        for item_id, stg_hash in stg_items
-        if _is_pendente_por_hash(stg_hash=stg_hash, sot_hash=sot_hashes.get(item_id))
+        for item in stg_items
+        if not _produto_equivalente(item, sot_por_id.get(item.id_produto))
     )
 
 
 def contar_clientes_pendentes_validacao() -> int:
-    stg_items = list(StgClientesNovos.objects.values_list("id_cliente", "hash_md5"))
+    stg_items = list(StgClientesNovos.objects.all())
     if not stg_items:
         return 0
 
-    cliente_ids = [item_id for item_id, _ in stg_items]
-    sot_hashes = dict(Cliente.objects.filter(id_cliente__in=cliente_ids).values_list("id_cliente", "hash_md5"))
+    cliente_ids = [item.id_cliente for item in stg_items]
+    sot_por_id = {
+        item.id_cliente: item
+        for item in Cliente.objects.filter(id_cliente__in=cliente_ids)
+    }
 
     return sum(
         1
-        for item_id, stg_hash in stg_items
-        if _is_pendente_por_hash(stg_hash=stg_hash, sot_hash=sot_hashes.get(item_id))
+        for item in stg_items
+        if not _cliente_equivalente(item, sot_por_id.get(item.id_cliente))
     )
 
 
 def contar_fornecedores_pendentes_validacao() -> int:
-    stg_items = list(StgFornecedoresNovos.objects.values_list("id_fornecedor", "hash_md5"))
+    stg_items = list(StgFornecedoresNovos.objects.all())
     if not stg_items:
         return 0
 
-    fornecedor_ids = [item_id for item_id, _ in stg_items]
-    sot_hashes = dict(
-        Fornecedor.objects.filter(id_fornecedor__in=fornecedor_ids).values_list("id_fornecedor", "hash_md5")
-    )
+    fornecedor_ids = [item.id_fornecedor for item in stg_items]
+    sot_por_id = {
+        item.id_fornecedor: item
+        for item in Fornecedor.objects.filter(id_fornecedor__in=fornecedor_ids)
+    }
 
     return sum(
         1
-        for item_id, stg_hash in stg_items
-        if _is_pendente_por_hash(stg_hash=stg_hash, sot_hash=sot_hashes.get(item_id))
+        for item in stg_items
+        if not _fornecedor_equivalente(item, sot_por_id.get(item.id_fornecedor))
     )
 
 
@@ -91,7 +340,6 @@ def contar_pendencias_validacao() -> dict[str, int]:
 def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
     try:
         pendentes = list(StgProdutosNovos.objects.all().order_by("id_produto"))
-        sot_hashes = dict(Produto.objects.values_list("id_produto", "hash_md5"))
 
         produto_ids = [item.id_produto for item in pendentes]
         produtos_sot = {
@@ -119,49 +367,54 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
 
         resultado: list[dict[str, Any]] = []
         for item in pendentes:
-            sot_hash = sot_hashes.get(item.id_produto)
-            if sot_hash is None or (item.hash_md5 or "") != (sot_hash or ""):
-                produto_sot = produtos_sot.get(item.id_produto)
-                tipo_pendencia = "ATUALIZACAO" if produto_sot is not None else "NOVO"
-                dados_sot: dict[str, Any] | None = None
+            produto_sot = produtos_sot.get(item.id_produto)
+            divergencias = _coletar_divergencias_produto(item, produto_sot)
+            if produto_sot is not None and not divergencias:
+                continue
 
-                if produto_sot is not None:
-                    dados_sot = {
-                        "nome": produto_sot.produto,
-                        "gtin": produto_sot.gtin,
-                        "barras": produto_sot.barras,
-                        "custo": produto_sot.custo,
-                        "valor_venda": produto_sot.venda,
-                        "status": produto_sot.status,
-                        "markup": produto_sot.markup,
-                        "markup_inv": produto_sot.markup_inv,
-                        "perda": produto_sot.perda,
-                        "fisico": produto_sot.fisico,
-                        "aliqefc": produto_sot.aliqefc,
-                        "cod_g3n": produto_sot.cod_g3n,
-                        "cod_rel": produto_sot.cod_rel,
-                        "usuario": produto_sot.usuario,
-                        "codigo": "",
-                        "id_und_medida": produto_sot.id_und_medida_id,
-                        "categorias_ids": list(produto_sot.categorias.values_list("id_conta", flat=True)),
-                    }
+            tipo_pendencia = "ATUALIZACAO" if produto_sot is not None else "NOVO"
+            resumo_divergencias = _montar_resumo_divergencias(divergencias, tipo_pendencia)
+            dados_sot: dict[str, Any] | None = None
 
-                resultado.append(
-                    {
-                        "id_produto": item.id_produto,
-                        "nome": item.nome,
-                        "gtin": item.gtin,
-                        "barras": item.barras,
-                        "unidade_comercial": item.unidade_comecial,
-                        "custo": item.custo,
-                        "valor_venda": item.valor_venda,
-                        "dt_ultimo_movimento": item.dt_ultimo_movimento,
-                        "status": item.status,
-                        "unidade_sugerida_id": resolve_unidade_sugerida(item.unidade_comecial),
-                        "tipo_pendencia": tipo_pendencia,
-                        "dados_sot": dados_sot,
-                    }
-                )
+            if produto_sot is not None:
+                dados_sot = {
+                    "nome": produto_sot.produto,
+                    "gtin": produto_sot.gtin,
+                    "barras": produto_sot.barras,
+                    "custo": produto_sot.custo,
+                    "valor_venda": produto_sot.venda,
+                    "status": produto_sot.status,
+                    "markup": produto_sot.markup,
+                    "markup_inv": produto_sot.markup_inv,
+                    "perda": produto_sot.perda,
+                    "fisico": produto_sot.fisico,
+                    "aliqefc": produto_sot.aliqefc,
+                    "cod_g3n": produto_sot.cod_g3n,
+                    "cod_rel": produto_sot.cod_rel,
+                    "usuario": produto_sot.usuario,
+                    "codigo": "",
+                    "id_und_medida": produto_sot.id_und_medida_id,
+                    "categorias_ids": list(produto_sot.categorias.values_list("id_conta", flat=True)),
+                }
+
+            resultado.append(
+                {
+                    "id_produto": item.id_produto,
+                    "nome": item.nome,
+                    "gtin": item.gtin,
+                    "barras": item.barras,
+                    "unidade_comercial": item.unidade_comecial,
+                    "custo": item.custo,
+                    "valor_venda": item.valor_venda,
+                    "dt_ultimo_movimento": item.dt_ultimo_movimento,
+                    "status": item.status,
+                    "unidade_sugerida_id": resolve_unidade_sugerida(item.unidade_comecial),
+                    "tipo_pendencia": tipo_pendencia,
+                    "dados_sot": dados_sot,
+                    "divergencias": divergencias,
+                    "divergencias_resumo": resumo_divergencias,
+                }
+            )
 
         if not search:
             return resultado
@@ -251,7 +504,6 @@ def aprovar_produto_novo(dados_validados: dict[str, Any]) -> None:
 def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
     try:
         pendentes = list(StgClientesNovos.objects.all().order_by("id_cliente"))
-        sot_hashes = dict(Cliente.objects.values_list("id_cliente", "hash_md5"))
         clientes_sot = {
             item.id_cliente: item
             for item in Cliente.objects.select_related("id_grupo", "id_tipo_venda").filter(
@@ -261,31 +513,36 @@ def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
 
         resultado: list[dict[str, Any]] = []
         for item in pendentes:
-            sot_hash = sot_hashes.get(item.id_cliente)
-            if sot_hash is None or (item.hash_md5 or "") != (sot_hash or ""):
-                cliente_sot = clientes_sot.get(item.id_cliente)
-                tipo_pendencia = "ATUALIZACAO" if cliente_sot is not None else "NOVO"
-                dados_sot: dict[str, Any] | None = None
-                if cliente_sot is not None:
-                    dados_sot = {
-                        "id_cliente": cliente_sot.id_cliente,
-                        "cliente": cliente_sot.nome_cliente,
-                        "nome_cliente": cliente_sot.nome_cliente,
-                        "raz_social": cliente_sot.raz_social,
-                        "prazo_cob": cliente_sot.prazo_cob,
-                        "id_grupo": cliente_sot.id_grupo_id,
-                        "id_tipo_venda": cliente_sot.id_tipo_venda_id,
-                    }
+            cliente_sot = clientes_sot.get(item.id_cliente)
+            divergencias = _coletar_divergencias_cliente(item, cliente_sot)
+            if cliente_sot is not None and not divergencias:
+                continue
 
-                resultado.append(
-                    {
-                        "id_cliente": item.id_cliente,
-                        "nome_cliente": item.cliente,
-                        "raz_social": item.raz_social,
-                        "tipo_pendencia": tipo_pendencia,
-                        "dados_sot": dados_sot,
-                    }
-                )
+            tipo_pendencia = "ATUALIZACAO" if cliente_sot is not None else "NOVO"
+            resumo_divergencias = _montar_resumo_divergencias(divergencias, tipo_pendencia)
+            dados_sot: dict[str, Any] | None = None
+            if cliente_sot is not None:
+                dados_sot = {
+                    "id_cliente": cliente_sot.id_cliente,
+                    "cliente": cliente_sot.nome_cliente,
+                    "nome_cliente": cliente_sot.nome_cliente,
+                    "raz_social": cliente_sot.raz_social,
+                    "prazo_cob": cliente_sot.prazo_cob,
+                    "id_grupo": cliente_sot.id_grupo_id,
+                    "id_tipo_venda": cliente_sot.id_tipo_venda_id,
+                }
+
+            resultado.append(
+                {
+                    "id_cliente": item.id_cliente,
+                    "nome_cliente": item.cliente,
+                    "raz_social": item.raz_social,
+                    "tipo_pendencia": tipo_pendencia,
+                    "dados_sot": dados_sot,
+                    "divergencias": divergencias,
+                    "divergencias_resumo": resumo_divergencias,
+                }
+            )
 
         if not search:
             return resultado
@@ -303,7 +560,6 @@ def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
 def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
     try:
         pendentes = list(StgFornecedoresNovos.objects.all().order_by("id_fornecedor"))
-        sot_hashes = dict(Fornecedor.objects.values_list("id_fornecedor", "hash_md5"))
         fornecedores_sot = {
             item.id_fornecedor: item
             for item in Fornecedor.objects.select_related("id_codsis").filter(
@@ -313,34 +569,39 @@ def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
 
         resultado: list[dict[str, Any]] = []
         for item in pendentes:
-            sot_hash = sot_hashes.get(item.id_fornecedor)
-            if sot_hash is None or (item.hash_md5 or "") != (sot_hash or ""):
-                fornecedor_sot = fornecedores_sot.get(item.id_fornecedor)
-                tipo_pendencia = "ATUALIZACAO" if fornecedor_sot is not None else "NOVO"
-                dados_sot: dict[str, Any] | None = None
-                if fornecedor_sot is not None:
-                    dados_sot = {
-                        "id_fornecedor": fornecedor_sot.id_fornecedor,
-                        "fantasia": fornecedor_sot.nome_fornecedor,
-                        "nome_fornecedor": fornecedor_sot.nome_fornecedor,
-                        "raz_social": fornecedor_sot.raz_social,
-                        "dt_cadastro": fornecedor_sot.dt_cadastro,
-                        "id_codsis": fornecedor_sot.id_codsis_id,
-                        "codigo": fornecedor_sot.codigo,
-                        "operador": fornecedor_sot.operador,
-                        "usuario": fornecedor_sot.usuario,
-                    }
+            fornecedor_sot = fornecedores_sot.get(item.id_fornecedor)
+            divergencias = _coletar_divergencias_fornecedor(item, fornecedor_sot)
+            if fornecedor_sot is not None and not divergencias:
+                continue
 
-                resultado.append(
-                    {
-                        "id_fornecedor": item.id_fornecedor,
-                        "nome_fornecedor": item.fantasia,
-                        "raz_social": item.raz_social,
-                        "dt_cadastro": item.dt_cadastro,
-                        "tipo_pendencia": tipo_pendencia,
-                        "dados_sot": dados_sot,
-                    }
-                )
+            tipo_pendencia = "ATUALIZACAO" if fornecedor_sot is not None else "NOVO"
+            resumo_divergencias = _montar_resumo_divergencias(divergencias, tipo_pendencia)
+            dados_sot: dict[str, Any] | None = None
+            if fornecedor_sot is not None:
+                dados_sot = {
+                    "id_fornecedor": fornecedor_sot.id_fornecedor,
+                    "fantasia": fornecedor_sot.nome_fornecedor,
+                    "nome_fornecedor": fornecedor_sot.nome_fornecedor,
+                    "raz_social": fornecedor_sot.raz_social,
+                    "dt_cadastro": fornecedor_sot.dt_cadastro,
+                    "id_codsis": fornecedor_sot.id_codsis_id,
+                    "codigo": fornecedor_sot.codigo,
+                    "operador": fornecedor_sot.operador,
+                    "usuario": fornecedor_sot.usuario,
+                }
+
+            resultado.append(
+                {
+                    "id_fornecedor": item.id_fornecedor,
+                    "nome_fornecedor": item.fantasia,
+                    "raz_social": item.raz_social,
+                    "dt_cadastro": item.dt_cadastro,
+                    "tipo_pendencia": tipo_pendencia,
+                    "dados_sot": dados_sot,
+                    "divergencias": divergencias,
+                    "divergencias_resumo": resumo_divergencias,
+                }
+            )
 
         if not search:
             return resultado

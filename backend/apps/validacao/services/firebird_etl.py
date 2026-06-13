@@ -13,9 +13,11 @@ from apps.validacao.models import STG_AuditoriaPlanilha, STG_ItemVenda, STG_Paga
 
 logger = logging.getLogger(__name__)
 
+CLIENTE_PADRAO_NOME = "Consumidor Geral"
 
-def _build_firebird_dsn() -> str:
-    fdb_path = settings.FDB_PATH
+
+def _build_firebird_dsn(firebird_path: str | None = None) -> str:
+    fdb_path = str(firebird_path or settings.FDB_PATH or "").strip()
     if not fdb_path:
         raise ValueError("FDB_PATH is not configured in environment.")
 
@@ -79,6 +81,20 @@ def _normalize_text(value: Any) -> str:
     return str(value).strip()
 
 
+def _normalizar_dados_cliente_legado(id_cliente: Any, nome_cliente: Any) -> tuple[int, str]:
+    id_raw = _normalize_text(id_cliente)
+    if not id_raw or id_raw == "0":
+        return 0, CLIENTE_PADRAO_NOME
+
+    try:
+        id_norm = int(id_raw)
+    except (ValueError, TypeError):
+        return 0, CLIENTE_PADRAO_NOME
+
+    nome_norm = _normalize_text(nome_cliente)
+    return id_norm, nome_norm
+
+
 def _extract_documento_3_blocos(
     cursor: fdb.fbcore.Cursor,
     tipo_documento: str,
@@ -100,20 +116,49 @@ def _extract_documento_3_blocos(
             C.STATUS_VENDA,
             C.NOME_COMPUTADOR,
             U.USUARIO AS NOME_USUARIO_LEGADO,
-            CASE WHEN (C.ID_CLIENTE = 0 OR C.ID_CLIENTE IS NULL) THEN 0 ELSE C.ID_CLIENTE END AS ID_CLIENTE_NORM,
-            CASE WHEN (C.NOME_CLIENTE = '' OR C.NOME_CLIENTE IS NULL) THEN 'Consumidor Geral' ELSE C.NOME_CLIENTE END AS NOME_CLIENTE_NORM
+                        0 AS ID_CLIENTE_NORM,
+                        '{CLIENTE_PADRAO_NOME}' AS NOME_CLIENTE_NORM
         FROM {tabela_cabecalho} C
         LEFT JOIN USUARIO U ON C.ID_USUARIO = U.ID
         WHERE C.DATA_VENDA BETWEEN ? AND ?
+          AND (
+              C.ID_CLIENTE IS NULL
+              OR C.ID_CLIENTE = 0
+              OR TRIM(CAST(C.ID_CLIENTE AS VARCHAR(20))) = ''
+          )
+
+        UNION ALL
+
+        SELECT
+            C.ID,
+            C.DATA_VENDA,
+            C.HORA_VENDA,
+            C.ID_USUARIO,
+            C.VALOR_FINAL,
+            C.STATUS_VENDA,
+            C.NOME_COMPUTADOR,
+            U.USUARIO AS NOME_USUARIO_LEGADO,
+            C.ID_CLIENTE AS ID_CLIENTE_NORM,
+            CL.CLIENTE AS NOME_CLIENTE_NORM
+        FROM {tabela_cabecalho} C
+        INNER JOIN CLIENTES CL ON C.ID_CLIENTE = CL.ID_CLIENTE
+        LEFT JOIN USUARIO U ON C.ID_USUARIO = U.ID
+        WHERE C.DATA_VENDA BETWEEN ? AND ?
+          AND NOT (
+              C.ID_CLIENTE IS NULL
+              OR C.ID_CLIENTE = 0
+              OR TRIM(CAST(C.ID_CLIENTE AS VARCHAR(20))) = ''
+          )
     """
 
-    cursor.execute(sql_cabecalho, (data_inicial, data_final))
+    cursor.execute(sql_cabecalho, (data_inicial, data_final, data_inicial, data_final))
     headers_rows = cursor.fetchall()
 
     stg_vendas = []
 
     for row in headers_rows:
         id_legado = int(row[0])
+        id_cliente_legado, nome_cliente_legado = _normalizar_dados_cliente_legado(row[8], row[9])
         stg_vendas.append(
             STG_Venda(
                 tipo_documento=tipo_documento,
@@ -125,8 +170,8 @@ def _extract_documento_3_blocos(
                 status_venda=_normalize_text(row[5]),
                 nome_computador=_normalize_text(row[6]),
                 nome_usuario_legado=_normalize_text(row[7]),
-                id_cliente_legado=row[8],
-                nome_cliente_legado=_normalize_text(row[9]) or "Consumidor Geral",
+                id_cliente_legado=id_cliente_legado,
+                nome_cliente_legado=nome_cliente_legado,
             )
         )
 
@@ -233,7 +278,11 @@ def _extract_documento_3_blocos(
     }
 
 
-def sincronizar_vendas_legado(data_inicial: date, data_final: date) -> dict[str, Any]:
+def sincronizar_vendas_legado(
+    data_inicial: date,
+    data_final: date,
+    firebird_path: str | None = None,
+) -> dict[str, Any]:
     logger.info(
         "Iniciando sincronizacao de vendas legado (Firebird). Periodo: %s a %s",
         data_inicial,
@@ -243,7 +292,7 @@ def sincronizar_vendas_legado(data_inicial: date, data_final: date) -> dict[str,
     if settings.FDB_CLIENT_LIB_PATH:
         fdb.fb_library_name = settings.FDB_CLIENT_LIB_PATH
 
-    dsn = _build_firebird_dsn()
+    dsn = _build_firebird_dsn(firebird_path=firebird_path)
 
     conn = None
     cursor = None
