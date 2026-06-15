@@ -204,8 +204,8 @@ export async function obterConfiguracaoFirebird() {
   return payload;
 }
 
-export async function executarSincronizacaoFirebird(url, extraData = {}) {
-  const requestConfig = await montarRequestSincronizacaoFirebird(extraData);
+export async function executarSincronizacaoFirebird(url, extraData = {}, options = {}) {
+  const requestConfig = await montarRequestSincronizacaoFirebird(extraData, options);
 
   const response = await fetchWithFallback(url, {
     method: "POST",
@@ -227,9 +227,18 @@ export function formatarErroSincronizacao(error, fallbackMessage) {
   return message || fallbackMessage;
 }
 
-export async function montarRequestSincronizacaoFirebird(extraData = {}) {
+function buildDynamicPickerRequiredMessage() {
+  return (
+    "Nao foi possivel selecionar o caminho Firebird no servidor. "
+    + "No modo dinamico, execute o backend com acesso ao explorer do sistema "
+    + "ou configure um caminho fixo no Painel do Sistema."
+  );
+}
+
+export async function montarRequestSincronizacaoFirebird(extraData = {}, options = {}) {
   const config = await obterConfiguracaoFirebird();
   const modo = String(config?.modo_localizacao || MODO_FIXO).toUpperCase();
+  const allowBrowserUploadFallback = Boolean(options?.allowBrowserUploadFallback);
 
   if (modo === MODO_DINAMICO) {
     try {
@@ -250,6 +259,10 @@ export async function montarRequestSincronizacaoFirebird(extraData = {}) {
         throw error;
       }
       throw error;
+    }
+
+    if (!allowBrowserUploadFallback) {
+      throw new Error(buildDynamicPickerRequiredMessage());
     }
 
     const arquivoFirebird = await pickFirebirdFile();

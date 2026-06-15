@@ -982,6 +982,9 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
     soma_stg_canceladas = Decimal("0")
     soma_auditoria_finalizadas = Decimal("0")
     soma_auditoria_canceladas = Decimal("0")
+    soma_validadas_finalizadas = Decimal("0")
+    qtd_validadas_finalizadas = 0
+    qtd_auditoria_finalizadas = 0
 
     vendas = list(STG_Venda.objects.all())
     for venda in vendas:
@@ -1021,6 +1024,7 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
                 soma_auditoria_canceladas += auditoria_data["total"]
             else:
                 soma_auditoria_finalizadas += auditoria_data["total"]
+                qtd_auditoria_finalizadas += 1
 
         if "duplicado_sot" in motivos:
             duplicadas += 1
@@ -1056,6 +1060,10 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
             if not venda.validacao_override:
                 venda.status_tratamento = STG_Venda.TRATAMENTO_PENDENTE
 
+        if venda.status_validacao == STG_Venda.STATUS_APROVADO and status_venda_norm != "C":
+            qtd_validadas_finalizadas += 1
+            soma_validadas_finalizadas += total_documento
+
     if vendas:
         STG_Venda.objects.bulk_update(vendas, ["status_validacao", "status_tratamento", "snapshot_divergencia"], batch_size=2000)
 
@@ -1069,7 +1077,11 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
         "soma_valor_stg_canceladas": str(soma_stg_canceladas),
         "soma_valor_auditoria": str(soma_auditoria_finalizadas),
         "soma_valor_auditoria_canceladas": str(soma_auditoria_canceladas),
-        "diferenca_total": str(soma_stg_finalizadas - soma_auditoria_finalizadas),
+        "qtd_vendas_validadas": qtd_validadas_finalizadas,
+        "soma_valor_vendas_validadas": str(soma_validadas_finalizadas),
+        "qtd_vendas_auditoria": qtd_auditoria_finalizadas,
+        "diferenca_total": str(soma_validadas_finalizadas - soma_auditoria_finalizadas),
+        "diferenca_total_stg_auditoria": str(soma_stg_finalizadas - soma_auditoria_finalizadas),
         "vendas_tratadas": STG_Venda.objects.filter(status_validacao=STG_Venda.STATUS_DIVERGENTE)
         .exclude(status_tratamento=STG_Venda.TRATAMENTO_PENDENTE)
         .count(),

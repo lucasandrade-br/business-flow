@@ -89,26 +89,26 @@
 
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Data inicial</p>
-          <p class="text-lg font-semibold text-[#373435]">{{ kpis.periodo_data_inicial || '-' }}</p>
+          <p class="text-[11px] text-gray-500">Negligenciadas</p>
+          <p class="text-sm font-semibold text-[#373435]">{{ kpis.vendas_negligenciadas || 0 }}</p>
         </div>
-        <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Data final</p>
-          <p class="text-lg font-semibold text-[#373435]">{{ kpis.periodo_data_final || '-' }}</p>
-        </div>
-        <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Vendas aprovadas</p>
-          <p class="text-lg font-semibold text-[#2f6f4f]">{{ kpis.vendas_aprovadas || 0 }}</p>
-        </div>
+        
         <div class="rounded-md border border-gray-200 p-3">
           <p class="text-[11px] text-gray-500">Vendas divergentes</p>
           <p class="text-lg font-semibold text-[#a82631]">{{ kpis.vendas_divergentes || 0 }}</p>
+        </div>
+        <div class="rounded-md border border-gray-200 p-3 lg:col-span-2">
+          <p class="text-[11px] text-gray-500">Vendas Validadas (Finalizadas)</p>
+          <div class="mt-1 flex items-baseline justify-between gap-2">
+            <p class="text-sm font-semibold text-[#2f6f4f]">{{ asMoney(kpis.soma_valor_vendas_validadas) }}</p>
+            <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_validadas || 0 }}</p>
+          </div>
         </div>
       </div>
 
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Vendas Finalizadas</p>
+          <p class="text-[11px] text-gray-500">Vendas Finalizadas (HOST)</p>
           <div class="mt-1 flex items-baseline justify-between gap-2">
             <p class="text-sm font-semibold text-[#373435]">{{ asMoney(kpis.soma_valor_stg) }}</p>
             <p class="text-[10px] text-gray-400">Canceladas: {{ asMoney(kpis.soma_valor_stg_canceladas) }}</p>
@@ -116,15 +116,18 @@
         </div>
         <div class="rounded-md border border-gray-200 p-3">
           <p class="text-[11px] text-gray-500">Total Auditoria</p>
-          <p class="text-sm font-semibold text-[#373435]">{{ asMoney(kpis.soma_valor_auditoria) }}</p>
+          <div class="mt-1 flex items-baseline justify-between gap-2">
+            <p class="text-sm font-semibold text-[#373435]">{{ asMoney(kpis.soma_valor_auditoria) }}</p>
+            <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_auditoria || 0 }}</p>
+          </div>
         </div>
         <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Diferenca Total</p>
+          <p class="text-[11px] text-gray-500">Diferenca Validadas x Auditoria</p>
           <p class="text-sm font-semibold" :class="Number(kpis.diferenca_total || 0) === 0 ? 'text-[#2f6f4f]' : 'text-[#a82631]'">{{ asMoney(kpis.diferenca_total) }}</p>
         </div>
         <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Negligenciadas</p>
-          <p class="text-sm font-semibold text-[#373435]">{{ kpis.vendas_negligenciadas || 0 }}</p>
+          <p class="text-[11px] text-gray-500">Periodo</p>
+          <p class="text-sm font-semibold text-[#373435]">{{ periodoKpiTexto }}</p>
         </div>
       </div>
 
@@ -603,7 +606,10 @@ const kpis = reactive({
   vendas_negligenciadas: 0,
   soma_valor_stg: "0",
   soma_valor_stg_canceladas: "0",
+  soma_valor_vendas_validadas: "0",
+  qtd_vendas_validadas: 0,
   soma_valor_auditoria: "0",
+  qtd_vendas_auditoria: 0,
   diferenca_total: "0",
   motivos_divergencia: {},
   periodo_data_inicial: null,
@@ -733,6 +739,29 @@ function asMoney(value) {
     currency: "BRL",
   });
 }
+
+function formatDateBr(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+
+  const iso = raw.slice(0, 10);
+  const parts = iso.split("-");
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+
+  return raw;
+}
+
+const periodoKpiTexto = computed(() => {
+  const inicial = formatDateBr(kpis.periodo_data_inicial);
+  const final = formatDateBr(kpis.periodo_data_final);
+
+  if (inicial === "-" && final === "-") return "-";
+  if (inicial === "-") return final;
+  if (final === "-") return inicial;
+  return `${inicial} até ${final}`;
+});
 
 function toNumber(value) {
   const parsed = Number(value);
@@ -901,8 +930,11 @@ function applyKpis(data) {
   kpis.vendas_negligenciadas = Number(data.vendas_negligenciadas || 0);
   kpis.soma_valor_stg = data.soma_valor_stg || "0";
   kpis.soma_valor_stg_canceladas = data.soma_valor_stg_canceladas || "0";
+  kpis.soma_valor_vendas_validadas = data.soma_valor_vendas_validadas || "0";
+  kpis.qtd_vendas_validadas = Number(data.qtd_vendas_validadas || 0);
   kpis.soma_valor_auditoria = data.soma_valor_auditoria || "0";
-  kpis.diferenca_total = data.diferenca_total || "0";
+  kpis.qtd_vendas_auditoria = Number(data.qtd_vendas_auditoria || 0);
+  kpis.diferenca_total = data.diferenca_total || String(Number(kpis.soma_valor_vendas_validadas || 0) - Number(kpis.soma_valor_auditoria || 0));
   kpis.motivos_divergencia = data.motivos_divergencia || {};
   kpis.periodo_data_inicial = data.periodo_data_inicial || null;
   kpis.periodo_data_final = data.periodo_data_final || null;
@@ -1561,6 +1593,8 @@ async function submit() {
     await executarSincronizacaoFirebird(`${API_BASE_URL}/api/validacao/sincronizar-vendas-firebird`, {
       data_inicial: form.data_inicial,
       data_final: form.data_final,
+    }, {
+      allowBrowserUploadFallback: false,
     });
 
     showModal.value = false;

@@ -1,19 +1,90 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
+from time import sleep
 from typing import Any
 
 import fdb
 from django.conf import settings
-from django.db import transaction
+from django.db import OperationalError, close_old_connections, connection, transaction
 
 from apps.validacao.models import STG_AuditoriaPlanilha, STG_ItemVenda, STG_PagamentoVenda, STG_Venda
 
 logger = logging.getLogger(__name__)
 
 CLIENTE_PADRAO_NOME = "Consumidor Geral"
+LOCK_NAME_SYNC_VENDAS = "business_flow_sync_vendas"
+LOCK_TIMEOUT_SECONDS = 1
+MAX_LOCK_RETRIES = 3
+
+
+class SincronizacaoVendasEmAndamentoError(ValueError):
+    """Raised when another vendas sync is already running."""
+
+
+def _extract_mysql_error_code(error: BaseException) -> int | None:
+    current: BaseException | None = error
+    visited: set[int] = set()
+
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        args = getattr(current, "args", ())
+        if args and isinstance(args[0], int):
+            return int(args[0])
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+
+    return None
+
+
+def _is_retryable_mysql_lock_error(error: BaseException) -> bool:
+    code = _extract_mysql_error_code(error)
+    if code in {1205, 1213}:
+        return True
+
+    message = str(error).lower()
+    return "lock wait timeout" in message or "deadlock found" in message
+
+
+@contextmanager
+def acquire_sincronizacao_vendas_lock(timeout_seconds: int = LOCK_TIMEOUT_SECONDS):
+    if connection.vendor != "mysql":
+        yield
+        return
+
+    acquired = False
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT GET_LOCK(%s, %s)", [LOCK_NAME_SYNC_VENDAS, int(timeout_seconds)])
+        row = cursor.fetchone()
+        acquired = bool(row and int(row[0] or 0) == 1)
+
+    if not acquired:
+        raise SincronizacaoVendasEmAndamentoError(
+            "Ja existe uma sincronizacao de vendas em andamento. Aguarde a conclusao e tente novamente."
+        )
+
+    try:
+        yield
+    finally:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT RELEASE_LOCK(%s)", [LOCK_NAME_SYNC_VENDAS])
+        except Exception:
+            logger.warning("Falha ao liberar lock nomeado da sincronizacao de vendas.", exc_info=True)
+
+
+def sincronizacao_vendas_em_andamento() -> bool:
+    if connection.vendor != "mysql":
+        return False
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT IS_USED_LOCK(%s)", [LOCK_NAME_SYNC_VENDAS])
+        row = cursor.fetchone()
+
+    return bool(row and row[0] is not None)
 
 
 def _build_firebird_dsn(firebird_path: str | None = None) -> str:
@@ -278,17 +349,11 @@ def _extract_documento_3_blocos(
     }
 
 
-def sincronizar_vendas_legado(
+def _sincronizar_vendas_legado_once(
     data_inicial: date,
     data_final: date,
     firebird_path: str | None = None,
 ) -> dict[str, Any]:
-    logger.info(
-        "Iniciando sincronizacao de vendas legado (Firebird). Periodo: %s a %s",
-        data_inicial,
-        data_final,
-    )
-
     if settings.FDB_CLIENT_LIB_PATH:
         fdb.fb_library_name = settings.FDB_CLIENT_LIB_PATH
 
@@ -337,7 +402,7 @@ def sincronizar_vendas_legado(
                 data_final=data_final,
             )
 
-        resultado = {
+        return {
             "periodo": {
                 "data_inicial": data_inicial.isoformat(),
                 "data_final": data_final.isoformat(),
@@ -350,14 +415,52 @@ def sincronizar_vendas_legado(
                 "pagamentos": nfce_result["pagamentos"] + dav_result["pagamentos"],
             },
         }
-
-        logger.info("Sincronizacao de vendas legado concluida: %s", resultado)
-        return resultado
-    except Exception:
-        logger.exception("Falha ao sincronizar vendas legado")
-        raise
     finally:
         if cursor is not None:
             cursor.close()
         if conn is not None:
             conn.close()
+
+
+def sincronizar_vendas_legado(
+    data_inicial: date,
+    data_final: date,
+    firebird_path: str | None = None,
+) -> dict[str, Any]:
+    logger.info(
+        "Iniciando sincronizacao de vendas legado (Firebird). Periodo: %s a %s",
+        data_inicial,
+        data_final,
+    )
+
+    for tentativa in range(1, MAX_LOCK_RETRIES + 1):
+        try:
+            with acquire_sincronizacao_vendas_lock():
+                resultado = _sincronizar_vendas_legado_once(
+                    data_inicial=data_inicial,
+                    data_final=data_final,
+                    firebird_path=firebird_path,
+                )
+            logger.info("Sincronizacao de vendas legado concluida: %s", resultado)
+            return resultado
+        except SincronizacaoVendasEmAndamentoError:
+            raise
+        except Exception as exc:
+            retryable = _is_retryable_mysql_lock_error(exc)
+            ultima_tentativa = tentativa >= MAX_LOCK_RETRIES
+
+            if retryable and not ultima_tentativa:
+                espera = float(tentativa)
+                logger.warning(
+                    "Conflito de lock/deadlock na sincronizacao de vendas (tentativa %s/%s). "
+                    "Nova tentativa em %.1fs.",
+                    tentativa,
+                    MAX_LOCK_RETRIES,
+                    espera,
+                )
+                close_old_connections()
+                sleep(espera)
+                continue
+
+            logger.exception("Falha ao sincronizar vendas legado")
+            raise

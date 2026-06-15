@@ -711,6 +711,8 @@ async function sincronizarCompras() {
     const { payload } = await executarSincronizacaoFirebird(`${API_BASE_URL}/api/compras/sincronizar-firebird`, {
       data_inicial: dataInicial.value,
       data_final: dataFinal.value,
+    }, {
+      allowBrowserUploadFallback: false,
     });
 
     applyKpis(payload.kpis || {});

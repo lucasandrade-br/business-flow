@@ -8,7 +8,11 @@ from apps.validacao.services_legacy import (
     listar_fornecedores_pendentes,
     listar_produtos_pendentes,
 )
-from apps.validacao.services.firebird_etl import sincronizar_vendas_legado
+from apps.validacao.services.firebird_etl import (
+    SincronizacaoVendasEmAndamentoError,
+    sincronizacao_vendas_em_andamento,
+    sincronizar_vendas_legado,
+)
 from apps.validacao.services.auditoria_planilha import (
     aplicar_tratamento_divergencia,
     aplicar_tratamento_divergencias_lote,
@@ -30,6 +34,8 @@ __all__ = [
     "listar_clientes_pendentes",
     "listar_fornecedores_pendentes",
     "listar_produtos_pendentes",
+    "SincronizacaoVendasEmAndamentoError",
+    "sincronizacao_vendas_em_andamento",
     "sincronizar_vendas_legado",
     "start_importacao_planilhas_auditoria",
     "get_importacao_job",

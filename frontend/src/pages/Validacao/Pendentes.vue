@@ -542,7 +542,9 @@ watch(search, () => {
 async function sincronizar() {
   syncing.value = true;
   try {
-    await executarSincronizacaoFirebird(`${API_BASE_URL}/api/integracao/sincronizar`);
+    await executarSincronizacaoFirebird(`${API_BASE_URL}/api/integracao/sincronizar`, {}, {
+      allowBrowserUploadFallback: false,
+    });
 
     notify("Sincronizacao concluida com sucesso.");
     await loadResumo();

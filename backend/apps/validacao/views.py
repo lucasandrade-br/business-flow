@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from django.db import OperationalError
 from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
@@ -18,6 +19,7 @@ from .serializers import (
 )
 from apps.integracao.firebird_config import resolve_firebird_path_for_request
 from .services import (
+    SincronizacaoVendasEmAndamentoError,
     aplicar_tratamento_pendencias_lote,
     aplicar_tratamento_divergencia,
     aplicar_tratamento_divergencias_lote,
@@ -34,6 +36,7 @@ from .services import (
     listar_fornecedores_pendentes,
     listar_produtos_pendentes,
     obter_kpis_reconciliacao,
+    sincronizacao_vendas_em_andamento,
     start_importacao_planilhas_auditoria,
     sincronizar_vendas_legado,
 )
@@ -195,6 +198,8 @@ class SincronizarVendasFirebirdAPIView(APIView):
                     data_final=data_final,
                     firebird_path=firebird_path,
                 )
+        except SincronizacaoVendasEmAndamentoError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
@@ -299,29 +304,54 @@ class ReconciliacaoLimparFluxoAPIView(APIView):
 
 class ReconciliacaoDivergenciasAPIView(APIView):
     def get(self, request: Request) -> Response:
+        if sincronizacao_vendas_em_andamento():
+            return Response(
+                {
+                    "detail": (
+                        "Sincronizacao de vendas em andamento. "
+                        "Aguarde a conclusao para consultar divergencias."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         motivo = request.query_params.get("motivo", "")
         tratamento = request.query_params.get("tratamento", "")
         somente_finalizados_raw = str(request.query_params.get("somente_finalizados", "")).strip().lower()
         somente_finalizados = somente_finalizados_raw in {"1", "true", "yes", "sim", "on"}
         status_venda = request.query_params.get("status_venda", "")
 
-        rows = listar_divergencias_reconciliacao(
-            motivo=motivo,
-            status_tratamento=tratamento,
-            somente_finalizados=somente_finalizados,
-            status_venda=status_venda,
-        )
+        try:
+            rows = listar_divergencias_reconciliacao(
+                motivo=motivo,
+                status_tratamento=tratamento,
+                somente_finalizados=somente_finalizados,
+                status_venda=status_venda,
+            )
 
-        paginator = PageNumberPagination()
-        paginator.page_size = 20
-        page = paginator.paginate_queryset(rows, request, view=self)
+            paginator = PageNumberPagination()
+            paginator.page_size = 20
+            page = paginator.paginate_queryset(rows, request, view=self)
 
-        return paginator.get_paginated_response(
-            {
-                "rows": page,
-                "kpis": obter_kpis_reconciliacao(),
-            }
-        )
+            return paginator.get_paginated_response(
+                {
+                    "rows": page,
+                    "kpis": obter_kpis_reconciliacao(),
+                }
+            )
+        except OperationalError as exc:
+            lower_message = str(exc).lower()
+            if "lock wait timeout" in lower_message or "deadlock found" in lower_message:
+                return Response(
+                    {
+                        "detail": (
+                            "Conflito temporario de banco durante reconciliacao. "
+                            "Aguarde alguns segundos e tente novamente."
+                        )
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            raise
 
 
 class ReconciliacaoTratarDivergenciaAPIView(APIView):
