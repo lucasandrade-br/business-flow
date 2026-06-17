@@ -10,13 +10,23 @@
       <section class="grid gap-3 rounded-md border border-gray-200 p-3 lg:grid-cols-2">
         <div class="space-y-1">
           <BaseInput
-            v-model="form.nome_fornecedor"
-            label="Fantasia"
+            v-model="form.nome_original"
+            label="Nome Original"
             readonly
-            :input-class="isCampoDivergente('nome_fornecedor', form.nome_fornecedor, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+            :input-class="isCampoDivergente('nome_fornecedor', form.nome_original, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
           />
-          <p v-if="isCampoDivergente('nome_fornecedor', form.nome_fornecedor, normalizeString)" class="text-[11px] text-yellow-800">
+          <p v-if="isCampoDivergente('nome_fornecedor', form.nome_original, normalizeString)" class="text-[11px] text-yellow-800">
             Atualmente: {{ valorSotTexto('nome_fornecedor') }}
+          </p>
+        </div>
+        <div class="space-y-1">
+          <BaseInput
+            v-model="form.nome_gerencial"
+            label="Nome Gerencial"
+            :input-class="isCampoDivergente('nome_gerencial', form.nome_gerencial, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p v-if="isCampoDivergente('nome_gerencial', form.nome_gerencial, normalizeString)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('nome_gerencial') }}
           </p>
         </div>
         <div>
@@ -182,7 +192,8 @@ const saving = ref(false);
 const error = ref("");
 
 const form = reactive({
-  nome_fornecedor: "",
+  nome_original: "",
+  nome_gerencial: "",
   raz_social: "",
   id_codsis: "",
   codigo: "",
@@ -240,11 +251,13 @@ function valorSotTexto(campo) {
 }
 
 function hydrateForm() {
-  form.nome_fornecedor = String(props.fornecedor?.nome_fornecedor || "");
+  form.nome_original = String(props.fornecedor?.nome_fornecedor || "");
+  form.nome_gerencial = String(props.fornecedor?.nome_gerencial || "");
   form.raz_social = String(props.fornecedor?.raz_social || "");
 
   if (isAtualizacao()) {
     const dados = props.fornecedor?.dados_sot || {};
+    form.nome_gerencial = String(props.fornecedor?.nome_gerencial || dados.nome_gerencial || props.fornecedor?.nome_fornecedor || "");
     form.id_codsis = dados.id_codsis ?? "";
     form.codigo = dados.codigo ?? "";
     form.operador = Number(dados.operador ?? 0);
@@ -279,7 +292,9 @@ async function save() {
 
   const payload = {
     id_fornecedor: props.fornecedor.id_fornecedor,
-    nome_fornecedor: String(form.nome_fornecedor || ""),
+    nome_fornecedor: String(form.nome_original || ""),
+    nome_original: String(form.nome_original || "").trim(),
+    nome_gerencial: String(form.nome_gerencial || "").trim() || String(form.nome_original || "").trim(),
     raz_social: String(form.raz_social || ""),
     dt_cadastro: props.fornecedor.dt_cadastro || null,
     id_codsis: toNumberOrNull(form.id_codsis),

@@ -116,7 +116,9 @@ class Produto(models.Model):
 	id_produto = models.BigIntegerField(primary_key=True)
 	gtin = models.CharField(max_length=32, blank=True, default="")
 	barras = models.CharField(max_length=64, blank=True, default="")
+	ncm = models.CharField(max_length=8, blank=True, default="")
 	produto = models.CharField(max_length=120)
+	nome_gerencial = models.CharField(max_length=120, blank=True, default="")
 	hash_md5 = models.CharField(max_length=32, blank=True, null=True)
 	id_und_medida = models.ForeignKey(
 		UnidadeMedida,
@@ -149,6 +151,8 @@ class Produto(models.Model):
 		db_table = "produtos"
 
 	def save(self, *args, **kwargs):
+		if not str(self.nome_gerencial or "").strip():
+			self.nome_gerencial = self.produto
 		self.hash_md5 = gerar_hash_produto(
 			id_produto=self.id_produto,
 			gtin=self.gtin,
@@ -280,6 +284,7 @@ class FormaPagamentoMapeamento(models.Model):
 class Fornecedor(models.Model):
 	id_fornecedor = models.BigIntegerField(primary_key=True)
 	nome_fornecedor = models.CharField(max_length=120)
+	nome_gerencial = models.CharField(max_length=120, blank=True, default="")
 	raz_social = models.CharField(max_length=160, blank=True, default="")
 	hash_md5 = models.CharField(max_length=32, blank=True, null=True)
 	dt_cadastro = models.DateField(null=True, blank=True)
@@ -300,6 +305,8 @@ class Fornecedor(models.Model):
 		db_table = "fornecedores"
 
 	def save(self, *args, **kwargs):
+		if not str(self.nome_gerencial or "").strip():
+			self.nome_gerencial = self.nome_fornecedor
 		self.hash_md5 = gerar_hash_fornecedor(
 			id_fornecedor=self.id_fornecedor,
 			nome_fornecedor=self.nome_fornecedor,
@@ -312,6 +319,7 @@ class Fornecedor(models.Model):
 class Cliente(models.Model):
 	id_cliente = models.BigIntegerField(primary_key=True)
 	nome_cliente = models.CharField(max_length=120)
+	nome_gerencial = models.CharField(max_length=120, blank=True, default="")
 	raz_social = models.CharField(max_length=160, blank=True, default="")
 	hash_md5 = models.CharField(max_length=32, blank=True, null=True)
 	prazo_cob = models.IntegerField(default=0)
@@ -339,6 +347,8 @@ class Cliente(models.Model):
 		db_table = "clientes"
 
 	def save(self, *args, **kwargs):
+		if not str(self.nome_gerencial or "").strip():
+			self.nome_gerencial = self.nome_cliente
 		self.hash_md5 = gerar_hash_cliente(
 			id_cliente=self.id_cliente,
 			nome_cliente=self.nome_cliente,

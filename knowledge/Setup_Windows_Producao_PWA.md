@@ -15,6 +15,47 @@ Instale os itens abaixo antes de iniciar:
 4. Microsoft Visual C++ Redistributable x64
 5. (Opcional) Git para atualizacoes futuras
 
+### 1.1) Como instalar Node.js no Windows (passo a passo)
+
+Se voce nunca instalou Node.js, siga exatamente estes passos:
+
+1. Acesse o site oficial: https://nodejs.org
+2. Baixe a versao LTS recomendada (Node.js 20 LTS ou superior compativel com Vite 5).
+3. Execute o instalador .msi como Administrador.
+4. Durante a instalacao:
+   - mantenha as opcoes padrao;
+   - deixe marcada a opcao para adicionar Node ao PATH.
+5. Finalize e feche o instalador.
+
+Depois, feche e abra novamente o PowerShell e valide:
+
+```powershell
+node -v
+npm -v
+```
+
+Resultado esperado:
+- o comando deve mostrar uma versao de Node (ex.: v20.x.x)
+- o comando deve mostrar uma versao de npm (ex.: 10.x.x)
+
+Se aparecer "node nao e reconhecido":
+1. reinicie o Windows (ou encerre e abra o terminal novamente);
+2. teste os comandos acima;
+3. se persistir, reinstale o Node.js e confirme a opcao PATH marcada.
+
+Opcao alternativa (via Winget):
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+```
+
+Depois valide novamente com:
+
+```powershell
+node -v
+npm -v
+```
+
 Observacao importante sobre Firebird:
 - O sistema le dados de um arquivo Firebird (.fdb/.gdb/.fbk)
 - Garanta acesso ao arquivo na maquina
@@ -68,6 +109,7 @@ PWA_SHORTCUT_PATH=C:\Users\SEU_USUARIO\Desktop\Business Flow.lnk
 Notas:
 - Se usar modo dinamico no sistema, FDB_PATH pode ficar vazio.
 - Se usar modo fixo, informe FDB_PATH com caminho completo do arquivo Firebird.
+- Se sua instalacao do MySQL usar porta customizada (ex.: 8080), ajuste DB_PORT para essa porta.
 
 ## 5) Instalar dependencias do projeto
 
@@ -145,6 +187,16 @@ Esse arquivo:
 - confirme permissao de leitura no arquivo .fdb
 - em modo dinamico, selecione o arquivo correto
 - se necessario configure FDB_CLIENT_LIB_PATH
+
+5. Erro no migrate: MariaDB 10.6 or later is required (found 10.1.38)
+- causa: a versao de MariaDB instalada e antiga e nao e suportada pelo Django 5.x do projeto
+- solucao recomendada: instalar MySQL 8.0+ ou MariaDB 10.6+
+- depois de instalar, confirme a versao com SELECT VERSION();
+- ajuste DB_HOST, DB_PORT, DB_USER, DB_PASSWORD no backend/.env e execute migrate novamente
+
+6. Python diferente da versao recomendada
+- o projeto foi preparado para Python 3.11 (x64)
+- se estiver usando Python muito novo (ex.: 3.14), prefira reinstalar com Python 3.11 e recriar a .venv
 
 ## 12) Fluxo para atualizacoes futuras
 

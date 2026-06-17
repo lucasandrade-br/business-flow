@@ -49,7 +49,7 @@ class _FiltroDataMixin:
 class VendaListAPIView(_FiltroDataMixin, generics.ListAPIView):
 	serializer_class = VendaListSerializer
 	filter_backends = [filters.SearchFilter]
-	search_fields = ["id_legado", "tipo_documento", "status", "cliente__nome_cliente", "usuario__nome"]
+	search_fields = ["id_legado", "tipo_documento", "status", "cliente__nome_cliente", "cliente__nome_gerencial", "usuario__nome"]
 
 	def get_queryset(self):
 		queryset = Venda.objects.select_related("cliente", "usuario").all().order_by("-data_venda", "-id_venda")
@@ -93,7 +93,14 @@ class VendaDetailAPIView(generics.RetrieveAPIView):
 class ItemVendaListAPIView(_FiltroDataMixin, generics.ListAPIView):
 	serializer_class = ItemVendaListSerializer
 	filter_backends = [filters.SearchFilter]
-	search_fields = ["venda__id_legado", "produto__produto", "venda__cliente__nome_cliente", "venda__tipo_documento"]
+	search_fields = [
+		"venda__id_legado",
+		"produto__produto",
+		"produto__nome_gerencial",
+		"venda__cliente__nome_cliente",
+		"venda__cliente__nome_gerencial",
+		"venda__tipo_documento",
+	]
 
 	def get_queryset(self):
 		queryset = ItemVenda.objects.select_related(
@@ -129,7 +136,7 @@ class ItemVendaListAPIView(_FiltroDataMixin, generics.ListAPIView):
 class PagamentoVendaListAPIView(_FiltroDataMixin, generics.ListAPIView):
 	serializer_class = PagamentoVendaListSerializer
 	filter_backends = [filters.SearchFilter]
-	search_fields = ["venda__id_legado", "forma_pagamento__descricao", "venda__cliente__nome_cliente", "venda__tipo_documento"]
+	search_fields = ["venda__id_legado", "forma_pagamento__descricao", "venda__cliente__nome_cliente", "venda__cliente__nome_gerencial", "venda__tipo_documento"]
 
 	def get_queryset(self):
 		queryset = PagamentoVenda.objects.select_related(

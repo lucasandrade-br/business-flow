@@ -27,7 +27,8 @@ SELECT
     PRODUTOS.CUSTO,
     PRODUTOS.VALOR_VENDA,
     PRODUTOS.DT_ULTIMO_MOVIMENTO,
-    PRODUTOS.STATUS
+    PRODUTOS.STATUS,
+    PRODUTOS.NCM
 FROM PRODUTOS
 """
 
@@ -145,6 +146,7 @@ def extrair_produtos_novos_sync(firebird_path: str | None = None) -> int:
             valor_venda = _normalize_decimal(row[6])
             dt_ultimo_movimento = _normalize_date(row[7])
             status = str(_normalize_value(row[8]) or "").strip()
+            ncm = str(_normalize_value(row[9]) or "").strip()
 
             if unidade_comercial:
                 unidades_detectadas.add(unidade_comercial)
@@ -154,6 +156,7 @@ def extrair_produtos_novos_sync(firebird_path: str | None = None) -> int:
                     id_produto=id_produto,
                     gtin=gtin,
                     barras=barras,
+                    ncm=ncm,
                     nome=produto,
                     unidade_comecial=unidade_comercial,
                     custo=custo,

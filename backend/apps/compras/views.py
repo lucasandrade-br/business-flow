@@ -71,7 +71,7 @@ class _FiltroDataMixin:
 class CompraListAPIView(_FiltroDataMixin, generics.ListAPIView):
     serializer_class = CompraListSerializer
     filter_backends = [filters.SearchFilter]
-    search_fields = ["id_legado", "nota", "nfe_status", "fornecedor__nome_fornecedor"]
+    search_fields = ["id_legado", "nota", "nfe_status", "fornecedor__nome_fornecedor", "fornecedor__nome_gerencial"]
 
     def get_queryset(self):
         queryset = Compra.objects.select_related("fornecedor").all().order_by("-data_emissao", "-id_compra")
@@ -109,7 +109,9 @@ class ItemCompraListAPIView(_FiltroDataMixin, generics.ListAPIView):
         "compra__nota",
         "compra__nfe_status",
         "compra__fornecedor__nome_fornecedor",
+        "compra__fornecedor__nome_gerencial",
         "produto__produto",
+        "produto__nome_gerencial",
     ]
 
     def get_queryset(self):

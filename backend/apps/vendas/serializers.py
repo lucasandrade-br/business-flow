@@ -6,7 +6,7 @@ from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
 
 
 class VendaListSerializer(serializers.ModelSerializer):
-    cliente_nome = serializers.CharField(source="cliente.nome_cliente", read_only=True)
+    cliente_nome = serializers.SerializerMethodField()
     usuario_nome = serializers.CharField(source="usuario.nome", read_only=True)
 
     class Meta:
@@ -26,9 +26,14 @@ class VendaListSerializer(serializers.ModelSerializer):
             "momento_consolidacao",
         ]
 
+    def get_cliente_nome(self, obj: Venda) -> str:
+        if obj.cliente is None:
+            return ""
+        return obj.cliente.nome_gerencial or obj.cliente.nome_cliente
+
 
 class ItemVendaDetalheSerializer(serializers.ModelSerializer):
-    produto_nome = serializers.CharField(source="produto.produto", read_only=True)
+    produto_nome = serializers.SerializerMethodField()
     unidade_sigla = serializers.CharField(source="unidade_medida.sigla", read_only=True)
 
     class Meta:
@@ -44,6 +49,11 @@ class ItemVendaDetalheSerializer(serializers.ModelSerializer):
             "valor_total_item",
             "cancelado",
         ]
+
+    def get_produto_nome(self, obj: ItemVenda) -> str:
+        if obj.produto is None:
+            return ""
+        return obj.produto.nome_gerencial or obj.produto.produto
 
 
 class PagamentoVendaDetalheSerializer(serializers.ModelSerializer):
@@ -77,8 +87,8 @@ class ItemVendaListSerializer(serializers.ModelSerializer):
     tipo_documento = serializers.CharField(source="venda.tipo_documento", read_only=True)
     data_venda = serializers.DateField(source="venda.data_venda", read_only=True)
     cliente = serializers.IntegerField(source="venda.cliente_id", read_only=True, allow_null=True)
-    cliente_nome = serializers.CharField(source="venda.cliente.nome_cliente", read_only=True)
-    produto_nome = serializers.CharField(source="produto.produto", read_only=True)
+    cliente_nome = serializers.SerializerMethodField()
+    produto_nome = serializers.SerializerMethodField()
     unidade_sigla = serializers.CharField(source="unidade_medida.sigla", read_only=True)
 
     class Meta:
@@ -101,13 +111,23 @@ class ItemVendaListSerializer(serializers.ModelSerializer):
             "cancelado",
         ]
 
+    def get_produto_nome(self, obj: ItemVenda) -> str:
+        if obj.produto is None:
+            return ""
+        return obj.produto.nome_gerencial or obj.produto.produto
+
+    def get_cliente_nome(self, obj: ItemVenda) -> str:
+        if obj.venda is None or obj.venda.cliente is None:
+            return ""
+        return obj.venda.cliente.nome_gerencial or obj.venda.cliente.nome_cliente
+
 
 class PagamentoVendaListSerializer(serializers.ModelSerializer):
     id_legado_venda = serializers.IntegerField(source="venda.id_legado", read_only=True)
     tipo_documento = serializers.CharField(source="venda.tipo_documento", read_only=True)
     data_venda = serializers.DateField(source="venda.data_venda", read_only=True)
     cliente = serializers.IntegerField(source="venda.cliente_id", read_only=True, allow_null=True)
-    cliente_nome = serializers.CharField(source="venda.cliente.nome_cliente", read_only=True)
+    cliente_nome = serializers.SerializerMethodField()
     forma_pagamento_descricao = serializers.CharField(source="forma_pagamento.descricao", read_only=True)
 
     class Meta:
@@ -125,3 +145,8 @@ class PagamentoVendaListSerializer(serializers.ModelSerializer):
             "valor_pago",
             "estorno",
         ]
+
+    def get_cliente_nome(self, obj: PagamentoVenda) -> str:
+        if obj.venda is None or obj.venda.cliente is None:
+            return ""
+        return obj.venda.cliente.nome_gerencial or obj.venda.cliente.nome_cliente

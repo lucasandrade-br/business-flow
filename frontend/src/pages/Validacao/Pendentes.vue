@@ -238,7 +238,8 @@ const columnsByEntity = {
   produtos: [
     { key: "select", label: "Sel" },
     { key: "id_produto", label: "ID" },
-    { key: "nome", label: "Produto" },
+    { key: "nome", label: "Nome Original" },
+    { key: "nome_gerencial", label: "Nome Gerencial" },
     { key: "tipo_pendencia", label: "Status" },
     { key: "divergencias_resumo", label: "Divergencias" },
     { key: "custo", label: "Custo" },
@@ -247,19 +248,18 @@ const columnsByEntity = {
   clientes: [
     { key: "select", label: "Sel" },
     { key: "id_cliente", label: "ID" },
-    { key: "nome_cliente", label: "Cliente" },
+    { key: "nome_cliente", label: "Nome Original" },
+    { key: "nome_gerencial", label: "Nome Gerencial" },
     { key: "tipo_pendencia", label: "Status" },
     { key: "divergencias_resumo", label: "Divergencias" },
-    { key: "raz_social", label: "Razao Social" },
   ],
   fornecedores: [
     { key: "select", label: "Sel" },
     { key: "id_fornecedor", label: "ID" },
-    { key: "nome_fornecedor", label: "Fornecedor" },
+    { key: "nome_fornecedor", label: "Nome Original" },
+    { key: "nome_gerencial", label: "Nome Gerencial" },
     { key: "tipo_pendencia", label: "Status" },
     { key: "divergencias_resumo", label: "Divergencias" },
-    { key: "raz_social", label: "Razao Social" },
-    { key: "dt_cadastro", label: "Cadastro" },
   ],
 };
 

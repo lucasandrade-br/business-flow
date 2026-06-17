@@ -63,6 +63,15 @@
         {{ asMoney(row.venda) }}
       </template>
 
+      <template #cell-status="{ row }">
+        <span
+          class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold"
+          :class="String(row.status || '').toUpperCase() === 'ATIVO' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'"
+        >
+          {{ String(row.status || '').toUpperCase() === 'ATIVO' ? 'ATIVO' : 'INATIVO' }}
+        </span>
+      </template>
+
       <template #actions="{ row }">
         <div class="inline-flex items-center gap-2">
           <button type="button" class="rounded-md border border-gray-200 p-1.5 text-gray-600 hover:bg-gray-50" @click="openEdit(row)">
@@ -82,7 +91,8 @@
     >
       <section class="grid gap-3 sm:grid-cols-2">
         <BaseInput v-model="form.id_produto" label="ID Produto" type="number" required />
-        <BaseInput v-model="form.produto" label="Nome" required />
+        <BaseInput v-model="form.produto" label="Nome Original" required />
+        <BaseInput v-model="form.nome_gerencial" label="Nome Gerencial" />
         <label class="space-y-1 text-xs">
           <span class="inline-flex items-center gap-1 font-medium text-gray-600">
             Status
@@ -152,6 +162,10 @@
         <label class="space-y-1 text-xs">
           <span class="font-medium text-gray-600">Barras</span>
           <input v-model="form.barras" type="text" class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm" />
+        </label>
+        <label class="space-y-1 text-xs">
+          <span class="font-medium text-gray-600">NCM</span>
+          <input v-model="form.ncm" type="text" maxlength="8" class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm" />
         </label>
         <label class="space-y-1 text-xs sm:col-span-2">
           <span class="font-medium text-gray-600">Ult Mov</span>
@@ -226,7 +240,7 @@ const endpoint = `${API_BASE_URL}/api/cadastros/produtos`;
 
 const columns = [
   { key: "id_produto", label: "ID" },
-  { key: "produto", label: "Produto" },
+  { key: "nome_gerencial", label: "Nome Gerencial" },
   { key: "status", label: "Status" },
   { key: "custo", label: "Custo" },
   { key: "venda", label: "Venda" },
@@ -259,6 +273,7 @@ const selectedByRoot = reactive({});
 const baseDefaults = {
   id_produto: "",
   produto: "",
+  nome_gerencial: "",
   status: true,
   custo: 0,
   venda: 0,
@@ -273,6 +288,7 @@ const baseDefaults = {
   usuario: "",
   gtin: "",
   barras: "",
+  ncm: "",
   ult_mov: "",
 };
 
@@ -280,7 +296,7 @@ const form = reactive({ ...baseDefaults });
 
 const exportColumns = [
   { key: "id_produto", label: "ID Produto" },
-  { key: "produto", label: "Nome" },
+  { key: "nome_gerencial", label: "Nome Gerencial" },
   { key: "status", label: "Status" },
   { key: "custo", label: "Custo" },
   { key: "venda", label: "Venda" },
@@ -506,6 +522,7 @@ async function save() {
   const payload = {
     id_produto: toNumber(form.id_produto),
     produto: String(form.produto || "").trim(),
+    nome_gerencial: String(form.nome_gerencial || "").trim() || String(form.produto || "").trim(),
     status: form.status ? "ATIVO" : "INATIVO",
     custo: Number(form.custo || 0),
     venda: Number(form.venda || 0),
@@ -520,6 +537,7 @@ async function save() {
     usuario: String(form.usuario || "").trim(),
     gtin: String(form.gtin || "").trim(),
     barras: String(form.barras || "").trim(),
+    ncm: String(form.ncm || "").trim(),
     ult_mov: form.ult_mov || null,
     categorias: selectedCategorias(),
   };

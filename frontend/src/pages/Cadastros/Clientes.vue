@@ -100,8 +100,7 @@ const endpoint = `${API_BASE_URL}/api/cadastros/clientes`;
 
 const columns = [
   { key: "id_cliente", label: "ID" },
-  { key: "nome_cliente", label: "Cliente" },
-  { key: "raz_social", label: "Razao Social" },
+  { key: "nome_gerencial", label: "Nome Gerencial" },
   { key: "cliente_padrao", label: "Padrao" },
   { key: "prazo_cob", label: "Prazo Cob" },
 ];
@@ -126,8 +125,7 @@ const tiposVendaOptions = ref([]);
 
 const exportColumns = [
   { key: "id_cliente", label: "ID Cliente" },
-  { key: "nome_cliente", label: "Nome" },
-  { key: "raz_social", label: "Razao Social" },
+  { key: "nome_gerencial", label: "Nome Gerencial" },
   { key: "prazo_cob", label: "Prazo Cob" },
   { key: "cliente_padrao", label: "Cliente Padrao" },
   { key: "id_grupo", label: "Grupo" },
@@ -142,7 +140,8 @@ function getFilenameFromDisposition(disposition, fallback) {
 
 const formFields = computed(() => [
   { name: "id_cliente", label: "ID Cliente", type: "number", required: true },
-  { name: "nome_cliente", label: "Nome", type: "text", required: true },
+  { name: "nome_cliente", label: "Nome Original", type: "text", required: true },
+  { name: "nome_gerencial", label: "Nome Gerencial", type: "text" },
   { name: "raz_social", label: "Razao Social", type: "text" },
   { name: "prazo_cob", label: "Prazo Cob", type: "number", required: true },
   {
@@ -177,6 +176,7 @@ const initialValues = computed(() => {
     return {
       id_cliente: "",
       nome_cliente: "",
+      nome_gerencial: "",
       raz_social: "",
       prazo_cob: 0,
       cliente_padrao: false,
@@ -187,6 +187,7 @@ const initialValues = computed(() => {
   return {
     id_cliente: editing.value.id_cliente,
     nome_cliente: editing.value.nome_cliente || "",
+    nome_gerencial: editing.value.nome_gerencial || "",
     raz_social: editing.value.raz_social || "",
     prazo_cob: editing.value.prazo_cob || 0,
     cliente_padrao: Boolean(editing.value.cliente_padrao),
@@ -291,6 +292,7 @@ async function save(values) {
   const payload = {
     id_cliente: Number(values.id_cliente),
     nome_cliente: String(values.nome_cliente || "").trim(),
+    nome_gerencial: String(values.nome_gerencial || "").trim() || String(values.nome_cliente || "").trim(),
     raz_social: String(values.raz_social || "").trim(),
     prazo_cob: Number(values.prazo_cob || 0),
     cliente_padrao: values.cliente_padrao === true || String(values.cliente_padrao) === "true",

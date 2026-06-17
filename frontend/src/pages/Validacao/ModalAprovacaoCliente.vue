@@ -10,13 +10,23 @@
       <section class="grid gap-3 rounded-md border border-gray-200 p-3 lg:grid-cols-2">
         <div class="space-y-1">
           <BaseInput
-            v-model="form.nome_cliente"
-            label="Cliente"
+            v-model="form.nome_original"
+            label="Nome Original"
             readonly
-            :input-class="isCampoDivergente('nome_cliente', form.nome_cliente, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+            :input-class="isCampoDivergente('nome_cliente', form.nome_original, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
           />
-          <p v-if="isCampoDivergente('nome_cliente', form.nome_cliente, normalizeString)" class="text-[11px] text-yellow-800">
+          <p v-if="isCampoDivergente('nome_cliente', form.nome_original, normalizeString)" class="text-[11px] text-yellow-800">
             Atualmente: {{ valorSotTexto('nome_cliente') }}
+          </p>
+        </div>
+        <div class="space-y-1">
+          <BaseInput
+            v-model="form.nome_gerencial"
+            label="Nome Gerencial"
+            :input-class="isCampoDivergente('nome_gerencial', form.nome_gerencial, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p v-if="isCampoDivergente('nome_gerencial', form.nome_gerencial, normalizeString)" class="text-[11px] text-yellow-800">
+            Atualmente: {{ valorSotTexto('nome_gerencial') }}
           </p>
         </div>
         <div>
@@ -162,7 +172,8 @@ const gruposOptions = ref([]);
 const tiposVendaOptions = ref([]);
 
 const form = reactive({
-  nome_cliente: "",
+  nome_original: "",
+  nome_gerencial: "",
   raz_social: "",
   prazo_cob: 0,
   id_grupo: "",
@@ -220,11 +231,13 @@ function valorSotTexto(campo) {
 }
 
 function hydrateForm() {
-  form.nome_cliente = String(props.cliente?.nome_cliente || "");
+  form.nome_original = String(props.cliente?.nome_cliente || "");
   form.raz_social = String(props.cliente?.raz_social || "");
+  form.nome_gerencial = String(props.cliente?.nome_gerencial || "");
 
   if (isAtualizacao()) {
     const dados = props.cliente?.dados_sot || {};
+    form.nome_gerencial = String(props.cliente?.nome_gerencial || dados.nome_gerencial || props.cliente?.nome_cliente || "");
     form.prazo_cob = Number(dados.prazo_cob ?? 0);
     form.id_grupo = dados.id_grupo ?? "";
     form.id_tipo_venda = dados.id_tipo_venda ?? "";
@@ -272,7 +285,9 @@ async function save() {
 
   const payload = {
     id_cliente: props.cliente.id_cliente,
-    nome_cliente: String(form.nome_cliente || ""),
+    nome_cliente: String(form.nome_original || ""),
+    nome_original: String(form.nome_original || "").trim(),
+    nome_gerencial: String(form.nome_gerencial || "").trim() || String(form.nome_original || "").trim(),
     raz_social: String(form.raz_social || ""),
     prazo_cob: Number(form.prazo_cob || 0),
     id_grupo: toNumberOrNull(form.id_grupo),

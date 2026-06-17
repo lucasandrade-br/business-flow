@@ -26,8 +26,10 @@ class DivergenciaResumoSerializer(serializers.Serializer):
 class ProdutoPendenteSerializer(serializers.Serializer):
     id_produto = serializers.IntegerField()
     nome = serializers.CharField()
+    nome_gerencial = serializers.CharField(required=False, allow_blank=True)
     gtin = serializers.CharField(required=False, allow_blank=True)
     barras = serializers.CharField(required=False, allow_blank=True)
+    ncm = serializers.CharField(required=False, allow_blank=True)
     unidade_comercial = serializers.CharField(source="unidade_comecial", required=False, allow_blank=True)
     custo = serializers.DecimalField(max_digits=18, decimal_places=6)
     valor_venda = serializers.DecimalField(max_digits=18, decimal_places=6)
@@ -42,9 +44,12 @@ class ProdutoPendenteSerializer(serializers.Serializer):
 
 class AprovarProdutoSerializer(serializers.Serializer):
     id_produto = serializers.IntegerField()
-    nome = serializers.CharField(max_length=120)
+    nome = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    nome_original = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    nome_gerencial = serializers.CharField(max_length=120, required=False, allow_blank=True)
     gtin = serializers.CharField(max_length=32, required=False, allow_blank=True)
     barras = serializers.CharField(max_length=64, required=False, allow_blank=True)
+    ncm = serializers.CharField(max_length=8, required=False, allow_blank=True)
     status = serializers.CharField(max_length=30, required=True, allow_blank=False)
     ult_mov = serializers.DateField(required=False, allow_null=True)
     custo = serializers.DecimalField(max_digits=18, decimal_places=6)
@@ -71,6 +76,20 @@ class AprovarProdutoSerializer(serializers.Serializer):
 
     codigo = serializers.CharField(max_length=5, required=False, allow_blank=True)
 
+    def validate(self, attrs: dict) -> dict:
+        nome_original = str(attrs.get("nome_original") or attrs.get("nome") or "").strip()
+        if not nome_original:
+            raise serializers.ValidationError({"nome": "nome_original e obrigatorio."})
+
+        nome_gerencial = str(attrs.get("nome_gerencial") or "").strip()
+        if not nome_gerencial:
+            nome_gerencial = nome_original
+
+        attrs["nome_original"] = nome_original
+        attrs["nome"] = nome_original
+        attrs["nome_gerencial"] = nome_gerencial
+        return attrs
+
     def validate_codigo(self, value: str) -> str:
         if value == "":
             return value
@@ -88,6 +107,7 @@ class AprovarProdutoSerializer(serializers.Serializer):
 class ClientePendenteSerializer(serializers.Serializer):
     id_cliente = serializers.IntegerField()
     nome_cliente = serializers.CharField()
+    nome_gerencial = serializers.CharField(required=False, allow_blank=True)
     raz_social = serializers.CharField(required=False, allow_blank=True)
     tipo_pendencia = serializers.ChoiceField(choices=["NOVO", "ATUALIZACAO"], required=False)
     dados_sot = serializers.JSONField(required=False, allow_null=True)
@@ -97,16 +117,33 @@ class ClientePendenteSerializer(serializers.Serializer):
 
 class AprovarClienteSerializer(serializers.Serializer):
     id_cliente = serializers.IntegerField()
-    nome_cliente = serializers.CharField(max_length=120)
+    nome_cliente = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    nome_original = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    nome_gerencial = serializers.CharField(max_length=120, required=False, allow_blank=True)
     raz_social = serializers.CharField(max_length=160, required=False, allow_blank=True)
     prazo_cob = serializers.IntegerField(min_value=0, required=False, default=0)
     id_grupo = serializers.IntegerField(required=False, allow_null=True)
     id_tipo_venda = serializers.IntegerField(required=False, allow_null=True)
 
+    def validate(self, attrs: dict) -> dict:
+        nome_original = str(attrs.get("nome_original") or attrs.get("nome_cliente") or "").strip()
+        if not nome_original:
+            raise serializers.ValidationError({"nome_cliente": "nome_original e obrigatorio."})
+
+        nome_gerencial = str(attrs.get("nome_gerencial") or "").strip()
+        if not nome_gerencial:
+            nome_gerencial = nome_original
+
+        attrs["nome_original"] = nome_original
+        attrs["nome_cliente"] = nome_original
+        attrs["nome_gerencial"] = nome_gerencial
+        return attrs
+
 
 class FornecedorPendenteSerializer(serializers.Serializer):
     id_fornecedor = serializers.IntegerField()
     nome_fornecedor = serializers.CharField()
+    nome_gerencial = serializers.CharField(required=False, allow_blank=True)
     raz_social = serializers.CharField(required=False, allow_blank=True)
     dt_cadastro = serializers.DateField(required=False, allow_null=True)
     tipo_pendencia = serializers.ChoiceField(choices=["NOVO", "ATUALIZACAO"], required=False)
@@ -117,13 +154,29 @@ class FornecedorPendenteSerializer(serializers.Serializer):
 
 class AprovarFornecedorSerializer(serializers.Serializer):
     id_fornecedor = serializers.IntegerField()
-    nome_fornecedor = serializers.CharField(max_length=120)
+    nome_fornecedor = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    nome_original = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    nome_gerencial = serializers.CharField(max_length=120, required=False, allow_blank=True)
     raz_social = serializers.CharField(max_length=160, required=False, allow_blank=True)
     dt_cadastro = serializers.DateField(required=False, allow_null=True)
     id_codsis = serializers.IntegerField(required=False, allow_null=True)
     codigo = serializers.CharField(max_length=5, required=False, allow_blank=True)
     operador = serializers.IntegerField(required=False, default=0)
     usuario = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    def validate(self, attrs: dict) -> dict:
+        nome_original = str(attrs.get("nome_original") or attrs.get("nome_fornecedor") or "").strip()
+        if not nome_original:
+            raise serializers.ValidationError({"nome_fornecedor": "nome_original e obrigatorio."})
+
+        nome_gerencial = str(attrs.get("nome_gerencial") or "").strip()
+        if not nome_gerencial:
+            nome_gerencial = nome_original
+
+        attrs["nome_original"] = nome_original
+        attrs["nome_fornecedor"] = nome_original
+        attrs["nome_gerencial"] = nome_gerencial
+        return attrs
 
     def validate_codigo(self, value: str) -> str:
         if value == "":

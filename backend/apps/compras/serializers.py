@@ -34,7 +34,7 @@ class TratarDivergenciasCompraLoteRequestSerializer(serializers.Serializer):
 
 
 class CompraListSerializer(serializers.ModelSerializer):
-    fornecedor_nome = serializers.CharField(source="fornecedor.nome_fornecedor", read_only=True)
+    fornecedor_nome = serializers.SerializerMethodField()
 
     class Meta:
         model = Compra
@@ -52,9 +52,14 @@ class CompraListSerializer(serializers.ModelSerializer):
             "momento_consolidacao",
         ]
 
+    def get_fornecedor_nome(self, obj: Compra) -> str:
+        if obj.fornecedor is None:
+            return ""
+        return obj.fornecedor.nome_gerencial or obj.fornecedor.nome_fornecedor
+
 
 class ItemCompraDetalheSerializer(serializers.ModelSerializer):
-    produto_nome = serializers.CharField(source="produto.produto", read_only=True)
+    produto_nome = serializers.SerializerMethodField()
     unidade_sigla = serializers.CharField(source="unidade_medida.sigla", read_only=True)
 
     class Meta:
@@ -72,6 +77,11 @@ class ItemCompraDetalheSerializer(serializers.ModelSerializer):
             "descricao_compra_origem",
         ]
 
+    def get_produto_nome(self, obj: ItemCompra) -> str:
+        if obj.produto is None:
+            return ""
+        return obj.produto.nome_gerencial or obj.produto.produto
+
 
 class CompraDetailSerializer(CompraListSerializer):
     itens = ItemCompraDetalheSerializer(many=True, read_only=True)
@@ -88,9 +98,9 @@ class ItemCompraListSerializer(serializers.ModelSerializer):
     nota_compra = serializers.IntegerField(source="compra.nota", read_only=True, allow_null=True)
     data_emissao = serializers.DateField(source="compra.data_emissao", read_only=True)
     fornecedor = serializers.IntegerField(source="compra.fornecedor_id", read_only=True)
-    fornecedor_nome = serializers.CharField(source="compra.fornecedor.nome_fornecedor", read_only=True)
+    fornecedor_nome = serializers.SerializerMethodField()
     nfe_status = serializers.CharField(source="compra.nfe_status", read_only=True)
-    produto_nome = serializers.CharField(source="produto.produto", read_only=True)
+    produto_nome = serializers.SerializerMethodField()
     unidade_sigla = serializers.CharField(source="unidade_medida.sigla", read_only=True)
 
     class Meta:
@@ -114,3 +124,13 @@ class ItemCompraListSerializer(serializers.ModelSerializer):
             "descricao_origem",
             "descricao_compra_origem",
         ]
+
+    def get_produto_nome(self, obj: ItemCompra) -> str:
+        if obj.produto is None:
+            return ""
+        return obj.produto.nome_gerencial or obj.produto.produto
+
+    def get_fornecedor_nome(self, obj: ItemCompra) -> str:
+        if obj.compra is None or obj.compra.fornecedor is None:
+            return ""
+        return obj.compra.fornecedor.nome_gerencial or obj.compra.fornecedor.nome_fornecedor

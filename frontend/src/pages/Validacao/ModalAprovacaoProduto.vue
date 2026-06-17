@@ -10,16 +10,29 @@
       <section class="grid gap-3 rounded-md border border-gray-200 p-3 lg:grid-cols-2">
         <div class="space-y-1">
           <BaseInput
-            v-model="form.nome"
-            label="Produto"
+            v-model="form.nome_original"
+            label="Nome Original"
             readonly
-            :input-class="isCampoDivergente('nome', form.nome, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+            :input-class="isCampoDivergente('nome', form.nome_original, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
           />
           <p
-            v-if="isCampoDivergente('nome', form.nome, normalizeString)"
+            v-if="isCampoDivergente('nome', form.nome_original, normalizeString)"
             class="text-[11px] text-yellow-800"
           >
             Atualmente: {{ valorSotTexto('nome') }}
+          </p>
+        </div>
+        <div class="space-y-1">
+          <BaseInput
+            v-model="form.nome_gerencial"
+            label="Nome Gerencial"
+            :input-class="isCampoDivergente('nome_gerencial', form.nome_gerencial, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p
+            v-if="isCampoDivergente('nome_gerencial', form.nome_gerencial, normalizeString)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotTexto('nome_gerencial') }}
           </p>
         </div>
         <div>
@@ -55,6 +68,20 @@
             class="text-[11px] text-yellow-800"
           >
             Atualmente: {{ valorSotTexto('barras') }}
+          </p>
+        </div>
+        <div class="space-y-1">
+          <BaseInput
+            v-model="form.ncm"
+            label="NCM"
+            readonly
+            :input-class="isCampoDivergente('ncm', form.ncm, normalizeString) ? 'bg-yellow-50 border-yellow-300 text-yellow-900' : ''"
+          />
+          <p
+            v-if="isCampoDivergente('ncm', form.ncm, normalizeString)"
+            class="text-[11px] text-yellow-800"
+          >
+            Atualmente: {{ valorSotTexto('ncm') }}
           </p>
         </div>
       </section>
@@ -268,9 +295,11 @@ const unidadesOptions = ref([]);
 const aliquotasOptions = ref([]);
 
 const form = reactive({
-  nome: "",
+  nome_original: "",
+  nome_gerencial: "",
   gtin: "",
   barras: "",
+  ncm: "",
   status: true,
   id_und_medida: "",
   custo: 0,
@@ -338,9 +367,11 @@ function flattenCategorias(root) {
 }
 
 function resetForm() {
-  form.nome = "";
+  form.nome_original = "";
+  form.nome_gerencial = "";
   form.gtin = "";
   form.barras = "";
+  form.ncm = "";
   form.status = true;
   form.id_und_medida = "";
   form.custo = 0;
@@ -439,9 +470,11 @@ function hydrateFormFromProduto() {
 
   if (props.produto.tipo_pendencia === "ATUALIZACAO" && props.produto.dados_sot) {
     const dados = props.produto.dados_sot;
-    form.nome = props.produto.nome || "";
+    form.nome_original = props.produto.nome || "";
+    form.nome_gerencial = props.produto.nome_gerencial || dados.nome_gerencial || props.produto.nome || "";
     form.gtin = props.produto.gtin || "";
     form.barras = props.produto.barras || "";
+    form.ncm = props.produto.ncm || dados.ncm || "";
     form.id_und_medida = dados.id_und_medida || sugeridaId;
     form.status = normalizeStatusLabel(props.produto.status) !== "INATIVO";
     form.custo = stagedCusto;
@@ -460,9 +493,11 @@ function hydrateFormFromProduto() {
   }
 
   resetForm();
-  form.nome = props.produto.nome || "";
+  form.nome_original = props.produto.nome || "";
+  form.nome_gerencial = props.produto.nome_gerencial || props.produto.nome || "";
   form.gtin = props.produto.gtin || "";
   form.barras = props.produto.barras || "";
+  form.ncm = props.produto.ncm || "";
   form.id_und_medida = sugeridaId;
   form.status = normalizeStatusLabel(props.produto.status) !== "INATIVO";
   form.custo = stagedCusto;
@@ -537,9 +572,12 @@ function buildPayload() {
 
   return {
     id_produto: props.produto.id_produto,
-    nome: String(form.nome || "").trim(),
+    nome: String(form.nome_original || "").trim(),
+    nome_original: String(form.nome_original || "").trim(),
+    nome_gerencial: String(form.nome_gerencial || "").trim() || String(form.nome_original || "").trim(),
     gtin: String(form.gtin || "").trim(),
     barras: String(form.barras || "").trim(),
+    ncm: String(form.ncm || "").trim(),
     status: form.status ? "ATIVO" : "INATIVO",
     ult_mov: props.produto.dt_ultimo_movimento || null,
     custo: numberOrZero(form.custo),

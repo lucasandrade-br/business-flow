@@ -120,8 +120,10 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
             if produto_sot is not None:
                 dados_sot = {
                     "nome": produto_sot.produto,
+                    "nome_gerencial": produto_sot.nome_gerencial,
                     "gtin": produto_sot.gtin,
                     "barras": produto_sot.barras,
+                    "ncm": produto_sot.ncm,
                     "custo": produto_sot.custo,
                     "valor_venda": produto_sot.venda,
                     "status": produto_sot.status,
@@ -142,8 +144,10 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
                 {
                     "id_produto": item.id_produto,
                     "nome": item.nome,
+                    "nome_gerencial": (produto_sot.nome_gerencial if produto_sot and produto_sot.nome_gerencial else item.nome),
                     "gtin": item.gtin,
                     "barras": item.barras,
+                    "ncm": item.ncm,
                     "unidade_comercial": item.unidade_comecial,
                     "custo": item.custo,
                     "valor_venda": item.valor_venda,
@@ -161,7 +165,10 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
         return [
             item
             for item in resultado
-            if _contains_search([item.get("id_produto"), item.get("nome")], search)
+            if _contains_search(
+                [item.get("id_produto"), item.get("nome"), item.get("nome_gerencial"), item.get("ncm")],
+                search,
+            )
         ]
     except Exception:
         logger.exception("Falha ao listar produtos pendentes da staging.")
@@ -171,6 +178,16 @@ def listar_produtos_pendentes(search: str = "") -> list[dict[str, Any]]:
 def aprovar_produto_novo(dados_validados: dict[str, Any]) -> None:
     try:
         with transaction.atomic():
+            nome_original = str(
+                dados_validados.get("nome_original")
+                or dados_validados.get("nome")
+                or ""
+            ).strip()
+            if not nome_original:
+                raise ValueError("nome_original do produto e obrigatorio para aprovacao.")
+
+            nome_gerencial = str(dados_validados.get("nome_gerencial") or "").strip() or nome_original
+
             unidade, _ = UnidadeMedida.objects.get_or_create(
                 id_und_medida=dados_validados["id_und_medida"],
                 defaults={
@@ -196,7 +213,9 @@ def aprovar_produto_novo(dados_validados: dict[str, Any]) -> None:
                 defaults={
                     "gtin": dados_validados.get("gtin", ""),
                     "barras": dados_validados.get("barras", ""),
-                    "produto": dados_validados["nome"],
+                    "ncm": dados_validados.get("ncm", ""),
+                    "produto": nome_original,
+                    "nome_gerencial": nome_gerencial,
                     "id_und_medida": unidade,
                     "custo": dados_validados["custo"],
                     "venda": dados_validados["valor_venda"],
@@ -214,7 +233,7 @@ def aprovar_produto_novo(dados_validados: dict[str, Any]) -> None:
                         id_produto=dados_validados["id_produto"],
                         gtin=dados_validados.get("gtin", ""),
                         barras=dados_validados.get("barras", ""),
-                        nome=dados_validados["nome"],
+                        nome=nome_original,
                         custo=dados_validados["custo"],
                         venda=dados_validados["valor_venda"],
                         status=dados_validados.get("status", ""),
@@ -263,6 +282,7 @@ def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
                     "id_cliente": cliente_sot.id_cliente,
                     "cliente": cliente_sot.nome_cliente,
                     "nome_cliente": cliente_sot.nome_cliente,
+                    "nome_gerencial": cliente_sot.nome_gerencial,
                     "raz_social": cliente_sot.raz_social,
                     "prazo_cob": cliente_sot.prazo_cob,
                     "id_grupo": cliente_sot.id_grupo_id,
@@ -273,6 +293,7 @@ def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
                 {
                     "id_cliente": item.id_cliente,
                     "nome_cliente": item.cliente,
+                    "nome_gerencial": (cliente_sot.nome_gerencial if cliente_sot and cliente_sot.nome_gerencial else item.cliente),
                     "raz_social": item.raz_social,
                     "tipo_pendencia": tipo_pendencia,
                     "dados_sot": dados_sot,
@@ -285,7 +306,10 @@ def listar_clientes_pendentes(search: str = "") -> list[dict[str, Any]]:
         return [
             item
             for item in resultado
-            if _contains_search([item.get("id_cliente"), item.get("nome_cliente"), item.get("raz_social")], search)
+            if _contains_search(
+                [item.get("id_cliente"), item.get("nome_cliente"), item.get("nome_gerencial"), item.get("raz_social")],
+                search,
+            )
         ]
     except Exception:
         logger.exception("Falha ao listar clientes pendentes da staging.")
@@ -315,6 +339,7 @@ def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
                     "id_fornecedor": fornecedor_sot.id_fornecedor,
                     "fantasia": fornecedor_sot.nome_fornecedor,
                     "nome_fornecedor": fornecedor_sot.nome_fornecedor,
+                    "nome_gerencial": fornecedor_sot.nome_gerencial,
                     "raz_social": fornecedor_sot.raz_social,
                     "dt_cadastro": fornecedor_sot.dt_cadastro,
                     "id_codsis": fornecedor_sot.id_codsis_id,
@@ -327,6 +352,7 @@ def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
                 {
                     "id_fornecedor": item.id_fornecedor,
                     "nome_fornecedor": item.fantasia,
+                    "nome_gerencial": (fornecedor_sot.nome_gerencial if fornecedor_sot and fornecedor_sot.nome_gerencial else item.fantasia),
                     "raz_social": item.raz_social,
                     "dt_cadastro": item.dt_cadastro,
                     "tipo_pendencia": tipo_pendencia,
@@ -340,7 +366,10 @@ def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
         return [
             item
             for item in resultado
-            if _contains_search([item.get("id_fornecedor"), item.get("nome_fornecedor"), item.get("raz_social")], search)
+            if _contains_search(
+                [item.get("id_fornecedor"), item.get("nome_fornecedor"), item.get("nome_gerencial"), item.get("raz_social")],
+                search,
+            )
         ]
     except Exception:
         logger.exception("Falha ao listar fornecedores pendentes da staging.")
@@ -350,6 +379,16 @@ def listar_fornecedores_pendentes(search: str = "") -> list[dict[str, Any]]:
 def aprovar_cliente_novo(dados_validados: dict[str, Any]) -> None:
     try:
         with transaction.atomic():
+            nome_original = str(
+                dados_validados.get("nome_original")
+                or dados_validados.get("nome_cliente")
+                or ""
+            ).strip()
+            if not nome_original:
+                raise ValueError("nome_original do cliente e obrigatorio para aprovacao.")
+
+            nome_gerencial = str(dados_validados.get("nome_gerencial") or "").strip() or nome_original
+
             grupo = None
             if dados_validados.get("id_grupo") is not None:
                 grupo, _ = GrupoCliente.objects.get_or_create(
@@ -367,14 +406,15 @@ def aprovar_cliente_novo(dados_validados: dict[str, Any]) -> None:
             Cliente.objects.update_or_create(
                 id_cliente=dados_validados["id_cliente"],
                 defaults={
-                    "nome_cliente": dados_validados["nome_cliente"],
+                    "nome_cliente": nome_original,
+                    "nome_gerencial": nome_gerencial,
                     "raz_social": dados_validados.get("raz_social", ""),
                     "prazo_cob": dados_validados.get("prazo_cob", 0),
                     "id_grupo": grupo,
                     "id_tipo_venda": tipo_venda,
                     "hash_md5": gerar_hash_cliente(
                         id_cliente=dados_validados["id_cliente"],
-                        nome_cliente=dados_validados["nome_cliente"],
+                        nome_cliente=nome_original,
                         raz_social=dados_validados.get("raz_social", ""),
                     ),
                 },
@@ -391,6 +431,16 @@ def aprovar_cliente_novo(dados_validados: dict[str, Any]) -> None:
 def aprovar_fornecedor_novo(dados_validados: dict[str, Any]) -> None:
     try:
         with transaction.atomic():
+            nome_original = str(
+                dados_validados.get("nome_original")
+                or dados_validados.get("nome_fornecedor")
+                or ""
+            ).strip()
+            if not nome_original:
+                raise ValueError("nome_original do fornecedor e obrigatorio para aprovacao.")
+
+            nome_gerencial = str(dados_validados.get("nome_gerencial") or "").strip() or nome_original
+
             codsis = None
             if dados_validados.get("id_codsis") is not None:
                 codsis, _ = CodSis.objects.get_or_create(
@@ -401,7 +451,8 @@ def aprovar_fornecedor_novo(dados_validados: dict[str, Any]) -> None:
             Fornecedor.objects.update_or_create(
                 id_fornecedor=dados_validados["id_fornecedor"],
                 defaults={
-                    "nome_fornecedor": dados_validados["nome_fornecedor"],
+                    "nome_fornecedor": nome_original,
+                    "nome_gerencial": nome_gerencial,
                     "raz_social": dados_validados.get("raz_social", ""),
                     "dt_cadastro": dados_validados.get("dt_cadastro") or date.today(),
                     "id_codsis": codsis,
@@ -410,7 +461,7 @@ def aprovar_fornecedor_novo(dados_validados: dict[str, Any]) -> None:
                     "usuario": dados_validados.get("usuario", ""),
                     "hash_md5": gerar_hash_fornecedor(
                         id_fornecedor=dados_validados["id_fornecedor"],
-                        nome_fornecedor=dados_validados["nome_fornecedor"],
+                        nome_fornecedor=nome_original,
                         raz_social=dados_validados.get("raz_social", ""),
                         #dt_cadastro=dados_validados.get("dt_cadastro") or date.today(),
                     ),

@@ -5,6 +5,7 @@ class StgProdutosNovos(models.Model):
     id_produto = models.BigIntegerField(primary_key=True)
     gtin = models.CharField(max_length=32, blank=True, default="")
     barras = models.CharField(max_length=64, blank=True, default="")
+    ncm = models.CharField(max_length=8, blank=True, default="")
     nome = models.CharField(max_length=120)
     unidade_comecial = models.CharField(max_length=10, blank=True, default="")
     custo = models.DecimalField(max_digits=18, decimal_places=6)

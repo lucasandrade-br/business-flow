@@ -174,7 +174,7 @@ class ProdutoListCreateAPIView(generics.ListCreateAPIView):
 	queryset = Produto.objects.select_related("id_und_medida").prefetch_related("categorias").all().order_by("id_produto")
 	serializer_class = ProdutoSerializer
 	filter_backends = [filters.SearchFilter]
-	search_fields = ["produto", "id_produto"]
+	search_fields = ["produto", "nome_gerencial", "id_produto"]
 
 	def get_queryset(self):
 		queryset = super().get_queryset()
@@ -198,7 +198,7 @@ class FornecedorListCreateAPIView(generics.ListCreateAPIView):
 	queryset = Fornecedor.objects.select_related("id_codsis").all().order_by("id_fornecedor")
 	serializer_class = FornecedorSerializer
 	filter_backends = [filters.SearchFilter]
-	search_fields = ["nome_fornecedor", "raz_social", "codigo"]
+	search_fields = ["nome_fornecedor", "nome_gerencial", "raz_social", "codigo"]
 
 
 class FornecedorDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
@@ -211,7 +211,7 @@ class ClienteListCreateAPIView(generics.ListCreateAPIView):
 	queryset = Cliente.objects.select_related("id_grupo", "id_tipo_venda").all().order_by("id_cliente")
 	serializer_class = ClienteSerializer
 	filter_backends = [filters.SearchFilter]
-	search_fields = ["nome_cliente", "raz_social"]
+	search_fields = ["nome_cliente", "nome_gerencial", "raz_social"]
 
 
 class ClienteDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
@@ -540,19 +540,19 @@ class ExportacaoUniversalAPIView(APIView):
 	TABLE_CONFIG = {
 		"produtos": {
 			"queryset": Produto.objects.select_related("id_und_medida").prefetch_related("categorias").all(),
-			"search_fields": ["produto"],
+			"search_fields": ["produto", "nome_gerencial"],
 			"allowed_columns": {field.name for field in Produto._meta.fields},
 			"filter_fn": lambda self, queryset, filtros: queryset,
 		},
 		"clientes": {
 			"queryset": Cliente.objects.select_related("id_grupo", "id_tipo_venda").all(),
-			"search_fields": ["nome_cliente", "raz_social"],
+			"search_fields": ["nome_cliente", "nome_gerencial", "raz_social"],
 			"allowed_columns": {field.name for field in Cliente._meta.fields},
 			"filter_fn": lambda self, queryset, filtros: queryset,
 		},
 		"fornecedores": {
 			"queryset": Fornecedor.objects.select_related("id_codsis").all(),
-			"search_fields": ["nome_fornecedor", "raz_social", "codigo"],
+			"search_fields": ["nome_fornecedor", "nome_gerencial", "raz_social", "codigo"],
 			"allowed_columns": {field.name for field in Fornecedor._meta.fields},
 			"filter_fn": lambda self, queryset, filtros: queryset,
 		},

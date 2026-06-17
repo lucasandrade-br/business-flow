@@ -91,8 +91,7 @@ const endpoint = `${API_BASE_URL}/api/cadastros/fornecedores`;
 
 const columns = [
   { key: "id_fornecedor", label: "ID" },
-  { key: "nome_fornecedor", label: "Fornecedor" },
-  { key: "raz_social", label: "Razao Social" },
+  { key: "nome_gerencial", label: "Nome Gerencial" },
   { key: "codigo", label: "Codigo" },
 ];
 
@@ -114,8 +113,7 @@ const editing = ref(null);
 
 const exportColumns = [
   { key: "id_fornecedor", label: "ID Fornecedor" },
-  { key: "nome_fornecedor", label: "Nome" },
-  { key: "raz_social", label: "Razao Social" },
+  { key: "nome_gerencial", label: "Nome Gerencial" },
   { key: "dt_cadastro", label: "Data Cadastro" },
   { key: "id_codsis", label: "CodSis" },
   { key: "codigo", label: "Codigo" },
@@ -136,7 +134,8 @@ function padCodigo(value) {
 
 const formFields = [
   { name: "id_fornecedor", label: "ID Fornecedor", type: "number", required: true },
-  { name: "nome_fornecedor", label: "Nome", type: "text", required: true },
+  { name: "nome_fornecedor", label: "Nome Original", type: "text", required: true },
+  { name: "nome_gerencial", label: "Nome Gerencial", type: "text" },
   { name: "raz_social", label: "Razao Social", type: "text" },
   { name: "dt_cadastro", label: "Data Cadastro", type: "date" },
   { name: "id_codsis", label: "ID CodSis", type: "number", helpText: "ID interno do sistema legado" },
@@ -162,6 +161,7 @@ const initialValues = computed(() => {
     return {
       id_fornecedor: "",
       nome_fornecedor: "",
+      nome_gerencial: "",
       raz_social: "",
       dt_cadastro: "",
       id_codsis: "",
@@ -173,6 +173,7 @@ const initialValues = computed(() => {
   return {
     id_fornecedor: editing.value.id_fornecedor,
     nome_fornecedor: editing.value.nome_fornecedor || "",
+    nome_gerencial: editing.value.nome_gerencial || "",
     raz_social: editing.value.raz_social || "",
     dt_cadastro: editing.value.dt_cadastro || "",
     id_codsis: editing.value.id_codsis || "",
@@ -251,6 +252,7 @@ async function save(values) {
   const payload = {
     id_fornecedor: Number(values.id_fornecedor),
     nome_fornecedor: String(values.nome_fornecedor || "").trim(),
+    nome_gerencial: String(values.nome_gerencial || "").trim() || String(values.nome_fornecedor || "").trim(),
     raz_social: String(values.raz_social || "").trim(),
     dt_cadastro: values.dt_cadastro || null,
     id_codsis: toNumberOrNull(values.id_codsis),

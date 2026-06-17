@@ -62,7 +62,9 @@ class ProdutoSerializer(serializers.ModelSerializer):
             "id_produto",
             "gtin",
             "barras",
+            "ncm",
             "produto",
+            "nome_gerencial",
             "id_und_medida",
             "custo",
             "venda",
@@ -91,6 +93,8 @@ class ProdutoSerializer(serializers.ModelSerializer):
             "usuario": {"required": False, "allow_blank": True, "default": ""},
             "gtin": {"required": False, "allow_blank": True, "default": ""},
             "barras": {"required": False, "allow_blank": True, "default": ""},
+            "ncm": {"required": False, "allow_blank": True, "default": ""},
+            "nome_gerencial": {"required": False, "allow_blank": True, "default": ""},
             "ult_mov": {"required": False, "allow_null": True, "default": None},
         }
 
@@ -203,6 +207,7 @@ class FornecedorSerializer(serializers.ModelSerializer):
         fields = [
             "id_fornecedor",
             "nome_fornecedor",
+            "nome_gerencial",
             "raz_social",
             "dt_cadastro",
             "id_codsis",
@@ -211,6 +216,7 @@ class FornecedorSerializer(serializers.ModelSerializer):
             "usuario",
         ]
         extra_kwargs = {
+            "nome_gerencial": {"required": False, "allow_blank": True, "default": ""},
             "raz_social": {"required": False, "allow_blank": True},
             "dt_cadastro": {"required": False, "allow_null": True},
             "codigo": {"required": False, "allow_blank": True},
@@ -248,12 +254,16 @@ class ClienteSerializer(serializers.ModelSerializer):
         fields = [
             "id_cliente",
             "nome_cliente",
+            "nome_gerencial",
             "raz_social",
             "prazo_cob",
             "cliente_padrao",
             "id_grupo",
             "id_tipo_venda",
         ]
+        extra_kwargs = {
+            "nome_gerencial": {"required": False, "allow_blank": True, "default": ""},
+        }
 
 
 class TemplateExportacaoSerializer(serializers.ModelSerializer):
