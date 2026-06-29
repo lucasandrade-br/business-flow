@@ -320,6 +320,7 @@ class ReconciliacaoDivergenciasAPIView(APIView):
         somente_finalizados_raw = str(request.query_params.get("somente_finalizados", "")).strip().lower()
         somente_finalizados = somente_finalizados_raw in {"1", "true", "yes", "sim", "on"}
         status_venda = request.query_params.get("status_venda", "")
+        id_legado = request.query_params.get("id_legado", "")
 
         try:
             rows = listar_divergencias_reconciliacao(
@@ -327,6 +328,7 @@ class ReconciliacaoDivergenciasAPIView(APIView):
                 status_tratamento=tratamento,
                 somente_finalizados=somente_finalizados,
                 status_venda=status_venda,
+                id_legado=id_legado,
             )
 
             paginator = PageNumberPagination()

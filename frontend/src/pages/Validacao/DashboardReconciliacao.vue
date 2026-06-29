@@ -1,6 +1,13 @@
 <template>
   <section class="space-y-4">
-    <article v-if="!hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4">
+    <article v-if="initializing" class="rounded-md border border-gray-200 bg-white p-4">
+      <div class="flex items-center gap-3">
+        <Loader2 class="h-5 w-5 animate-spin text-gray-400" />
+        <p class="text-sm text-gray-500">Verificando dados pendentes de validação...</p>
+      </div>
+    </article>
+
+    <article v-if="!initializing && !hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-sm font-semibold text-[#373435]">Hub de Reconciliação Financeira</h2>
@@ -18,7 +25,7 @@
       </div>
     </article>
 
-    <article v-if="!hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4 space-y-3">
+    <article v-if="!initializing && !hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4 space-y-3">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 class="text-sm font-semibold text-[#373435]">Ingestão de Auditoria (Excel)</h3>
@@ -79,15 +86,22 @@
       </div>
     </article>
 
-    <article v-if="hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4 space-y-3">
+    <article v-if="!initializing && hasValidationResult" class="rounded-md border border-gray-200 bg-white p-4 space-y-3">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Resumo da Importação e Validação</h3>
         <button type="button" class="rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50" @click="abrirConfirmacaoNovaImportacao">
           Nova importação
         </button>
       </div>
-
+      
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-md border border-gray-200 p-3 lg:col-span-2">
+          <p class="text-[11px] text-gray-500">Vendas Validadas (Finalizadas)</p>
+          <div class="mt-1 flex items-baseline justify-between gap-2">
+            <p class="text-sm font-semibold text-[#2f6f4f]">{{ asMoney(kpis.soma_valor_vendas_validadas) }}</p>
+            <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_validadas || 0 }}</p>
+          </div>
+        </div>
         <div class="rounded-md border border-gray-200 p-3">
           <p class="text-[11px] text-gray-500">Negligenciadas</p>
           <p class="text-sm font-semibold text-[#373435]">{{ kpis.vendas_negligenciadas || 0 }}</p>
@@ -97,13 +111,7 @@
           <p class="text-[11px] text-gray-500">Vendas divergentes</p>
           <p class="text-lg font-semibold text-[#a82631]">{{ kpis.vendas_divergentes || 0 }}</p>
         </div>
-        <div class="rounded-md border border-gray-200 p-3 lg:col-span-2">
-          <p class="text-[11px] text-gray-500">Vendas Validadas (Finalizadas)</p>
-          <div class="mt-1 flex items-baseline justify-between gap-2">
-            <p class="text-sm font-semibold text-[#2f6f4f]">{{ asMoney(kpis.soma_valor_vendas_validadas) }}</p>
-            <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_validadas || 0 }}</p>
-          </div>
-        </div>
+        
       </div>
 
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -131,21 +139,50 @@
         </div>
       </div>
 
-      <div class="flex flex-col gap-2 rounded-md border border-gray-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex items-center gap-2">
-          <label class="text-xs text-gray-700">Filtro:</label>
-          <select v-model="activeFiltro" class="rounded-md border border-gray-200 px-2 py-1 text-xs" @change="reloadDivergencias(true)">
-            <option value="todos">Todas divergências</option>
-            <option value="divergencia_totais">Divergência de totais</option>
-            <option value="divergencia_formato">Divergência de formato</option>
-            <option value="duplicado_sot">Duplicado no SOT</option>
-            <option value="status_f">Somente finalizados</option>
-            <option value="status_c">Somente cancelados</option>
+      <div class="flex flex-col gap-2 rounded-md border border-gray-200 bg-white p-3 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex flex-wrap items-center gap-2">
+          <select v-model="filtroMotivo" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos os motivos</option>
+            <option v-for="item in motivoOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
           </select>
-          <label class="inline-flex items-center gap-1 text-xs text-gray-700">
-            <input v-model="somentePendentes" type="checkbox" @change="reloadDivergencias(true)" />
-            Somente pendentes
-          </label>
+
+          <select v-model="filtroTratamento" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos os tratamentos</option>
+            <option value="PENDENTE">Pendente / Ajustado</option>
+            <option value="VALIDADO">Validado</option>
+            <option value="NEGLIGENCIADO">Negligenciado</option>
+          </select>
+
+          <select v-model="filtroStatusVenda" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos os status</option>
+            <option value="F">Finalizado</option>
+            <option value="C">Cancelado</option>
+          </select>
+
+          <input
+            v-model="filtroIdLegado"
+            type="text"
+            placeholder="Filtrar por ID da venda"
+            class="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+          />
+
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-black px-3 py-1.5 text-xs text-white hover:bg-gray-500"
+            @click="reloadDivergencias(true)"
+          >
+            <Filter class="h-3.5 w-3.5" />
+            Filtrar
+          </button>
+          <button
+            type="button"
+            class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            @click="limparFiltros"
+          >
+            Limpar filtros
+          </button>
         </div>
 
         <div class="flex gap-2">
@@ -527,7 +564,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { FileSpreadsheet, Folder, Loader2, RefreshCw, Upload } from "lucide-vue-next";
+import { FileSpreadsheet, Filter, Folder, Loader2, RefreshCw, Upload } from "lucide-vue-next";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
@@ -538,6 +575,14 @@ const API_BASE_URL = getApiBaseUrl();
 const STATUS_TRATAMENTO_VALIDADO = "VALIDADO";
 const STATUS_TRATAMENTO_NEGLIGENCIADO = "NEGLIGENCIADO";
 const MOTIVO_DUPLICADO_SOT = "duplicado_sot";
+
+const MOTIVO_LABELS = {
+  divergencia_totais: "Divergência de totais",
+  divergencia_formato: "Divergência de formato",
+  duplicado_sot: "Duplicado no SOT",
+};
+
+const motivoOptions = Object.entries(MOTIVO_LABELS).map(([value, label]) => ({ value, label }));
 
 const LABELS_CODIGO_BLOQUEIO = {
   divergencia_formato_pagamento: "Divergencia de formato de pagamento",
@@ -622,8 +667,10 @@ const tableError = ref("");
 const count = ref(0);
 const next = ref("");
 const previous = ref("");
-const activeFiltro = ref("todos");
-const somentePendentes = ref(true);
+const filtroMotivo = ref("");
+const filtroTratamento = ref("PENDENTE");
+const filtroStatusVenda = ref("");
+const filtroIdLegado = ref("");
 const applyingBatch = ref(false);
 const showConfirmModal = ref(false);
 const confirmRunning = ref(false);
@@ -636,6 +683,7 @@ const formasPagamento = ref([]);
 const showEditLoteModal = ref(false);
 const editLoteFormaId = ref("");
 const editLoteRunning = ref(false);
+const initializing = ref(true);
 const showBloqueioModal = ref(false);
 const bloqueioModalRunning = ref(false);
 const bloqueioModalItems = ref([]);
@@ -1021,8 +1069,10 @@ function resetFluxoLocal() {
   count.value = 0;
   next.value = "";
   previous.value = "";
-  activeFiltro.value = "todos";
-  somentePendentes.value = true;
+  filtroMotivo.value = "";
+  filtroTratamento.value = "PENDENTE";
+  filtroStatusVenda.value = "";
+  filtroIdLegado.value = "";
   Object.keys(kpis).forEach((key) => {
     if (key === "motivos_divergencia") {
       kpis[key] = {};
@@ -1091,25 +1141,41 @@ async function carregarResumoPendencias() {
 
 function buildUrl(url = "") {
   const target = new URL(url || `${API_BASE_URL}/api/validacao/reconciliacao/divergencias`);
-  const filtro = String(activeFiltro.value || "");
-  if (filtro.startsWith("status_")) {
-    target.searchParams.delete("motivo");
-    target.searchParams.set("status_venda", filtro === "status_f" ? "F" : "C");
-  } else if (filtro && filtro !== "todos") {
-    target.searchParams.set("motivo", filtro);
-    target.searchParams.delete("status_venda");
+
+  if (filtroMotivo.value) {
+    target.searchParams.set("motivo", filtroMotivo.value);
   } else {
     target.searchParams.delete("motivo");
-    target.searchParams.delete("status_venda");
   }
 
-  if (somentePendentes.value) {
-    target.searchParams.set("tratamento", "PENDENTE");
+  if (filtroTratamento.value) {
+    target.searchParams.set("tratamento", filtroTratamento.value);
   } else {
     target.searchParams.delete("tratamento");
   }
 
+  if (filtroStatusVenda.value) {
+    target.searchParams.set("status_venda", filtroStatusVenda.value);
+  } else {
+    target.searchParams.delete("status_venda");
+  }
+
+  const idLegadoNorm = String(filtroIdLegado.value || "").trim();
+  if (idLegadoNorm) {
+    target.searchParams.set("id_legado", idLegadoNorm);
+  } else {
+    target.searchParams.delete("id_legado");
+  }
+
   return target.toString();
+}
+
+function limparFiltros() {
+  filtroMotivo.value = "";
+  filtroTratamento.value = "PENDENTE";
+  filtroStatusVenda.value = "";
+  filtroIdLegado.value = "";
+  reloadDivergencias(true);
 }
 
 async function loadDivergencias(url = "") {
@@ -1608,7 +1674,11 @@ async function submit() {
 }
 
 onMounted(async () => {
-  await Promise.all([reloadDivergencias(true), carregarFormasPagamento(), carregarResumoPendencias()]);
+  try {
+    await Promise.all([reloadDivergencias(true), carregarFormasPagamento(), carregarResumoPendencias()]);
+  } finally {
+    initializing.value = false;
+  }
 });
 
 onBeforeUnmount(() => {

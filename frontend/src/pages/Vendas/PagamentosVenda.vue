@@ -80,7 +80,7 @@
           </button>
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-black px-3 py-2 text-xs font-medium text-white hover:opacity-95"
             @click="showExportModal = true"
           >
             <Download class="h-3.5 w-3.5" />

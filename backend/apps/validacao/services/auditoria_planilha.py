@@ -1030,6 +1030,8 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
             duplicadas += 1
 
         if motivos:
+            if "duplicado_sot" in motivos:
+                venda.status_tratamento = STG_Venda.TRATAMENTO_NEGLIGENCIADO
             if venda.status_tratamento != STG_Venda.TRATAMENTO_NEGLIGENCIADO:
                 divergentes += 1
             venda.status_validacao = STG_Venda.STATUS_DIVERGENTE
@@ -1114,6 +1116,7 @@ def listar_divergencias_reconciliacao(
     status_tratamento: str | None = None,
     somente_finalizados: bool = False,
     status_venda: str | None = None,
+    id_legado: str | int | None = None,
 ) -> list[dict[str, Any]]:
     motivo_norm = _normalize_text(motivo).lower()
     if motivo_norm and motivo_norm not in MOTIVOS_DIVERGENCIA_VALIDOS:
@@ -1133,11 +1136,19 @@ def listar_divergencias_reconciliacao(
     if status_venda_norm not in {"", "F", "C"}:
         status_venda_norm = ""
 
+    id_legado_norm = _normalize_text(id_legado)
+
     divergentes = (
         STG_Venda.objects.filter(status_validacao=STG_Venda.STATUS_DIVERGENTE)
         .prefetch_related("itens", "pagamentos")
         .order_by("tipo_documento", "id_legado")
     )
+
+    if id_legado_norm:
+        try:
+            divergentes = divergentes.filter(id_legado=int(id_legado_norm))
+        except (ValueError, TypeError):
+            divergentes = divergentes.none()
 
     auditoria_rows = STG_AuditoriaPlanilha.objects.values(
         "tipo_documento",

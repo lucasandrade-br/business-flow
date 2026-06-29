@@ -37,13 +37,9 @@
 
     <article class="rounded-md border border-gray-200 bg-white p-4">
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Periodo inicial</p>
-          <p class="text-sm font-semibold text-[#373435]">{{ formatDateBr(kpis.periodo_data_inicial) }}</p>
-        </div>
-        <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Periodo final</p>
-          <p class="text-sm font-semibold text-[#373435]">{{ formatDateBr(kpis.periodo_data_final) }}</p>
+        <div class="rounded-md border border-gray-200 p-3 lg:col-span-2">
+          <p class="text-[11px] text-gray-500">Total aprovado</p>
+          <p class="text-sm font-semibold text-[#2f6f4f]">{{ asMoney(kpis.soma_valor_aprovadas) }}</p>
         </div>
         <div class="rounded-md border border-gray-200 p-3">
           <p class="text-[11px] text-gray-500">Compras STG</p>
@@ -65,12 +61,12 @@
           <p class="text-lg font-semibold text-[#a82631]">{{ kpis.compras_divergentes || 0 }}</p>
         </div>
         <div class="rounded-md border border-gray-200 p-3">
-          <p class="text-[11px] text-gray-500">Duplicadas SOT</p>
-          <p class="text-lg font-semibold text-[#373435]">{{ kpis.compras_duplicadas_sot || 0 }}</p>
-        </div>
-        <div class="rounded-md border border-gray-200 p-3">
           <p class="text-[11px] text-gray-500">Negligenciadas</p>
           <p class="text-lg font-semibold text-[#373435]">{{ kpis.compras_negligenciadas || 0 }}</p>
+        </div>
+        <div class="rounded-md border border-gray-200 p-3">
+          <p class="text-[11px] text-gray-500">Periodo</p>
+          <p class="text-sm font-semibold text-[#373435]">{{ periodoKpiTexto }}</p>
         </div>
       </div>
 
@@ -394,6 +390,7 @@ const kpis = reactive({
   compras_duplicadas_sot: 0,
   compras_negligenciadas: 0,
   soma_valor_stg: "0",
+  soma_valor_aprovadas: "0",
   motivos_divergencia: {},
   periodo_data_inicial: null,
   periodo_data_final: null,
@@ -544,6 +541,13 @@ function toggleSelecionarTodos(checked) {
   });
 }
 
+const periodoKpiTexto = computed(() => {
+  const inicial = formatDateBr(kpis.periodo_data_inicial);
+  const final = formatDateBr(kpis.periodo_data_final);
+  if (inicial === "-" && final === "-") return "-";
+  return `${inicial} até ${final}`;
+});
+
 function applyKpis(data) {
   kpis.total_compras_stg = Number(data.total_compras_stg || 0);
   kpis.compras_aprovadas = Number(data.compras_aprovadas || 0);
@@ -551,6 +555,7 @@ function applyKpis(data) {
   kpis.compras_duplicadas_sot = Number(data.compras_duplicadas_sot || 0);
   kpis.compras_negligenciadas = Number(data.compras_negligenciadas || 0);
   kpis.soma_valor_stg = data.soma_valor_stg || "0";
+  kpis.soma_valor_aprovadas = data.soma_valor_aprovadas || "0";
   kpis.motivos_divergencia = data.motivos_divergencia || {};
   kpis.periodo_data_inicial = data.periodo_data_inicial || null;
   kpis.periodo_data_final = data.periodo_data_final || null;

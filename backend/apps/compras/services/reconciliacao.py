@@ -376,6 +376,7 @@ def executar_validacao_compras(reset_tracking: bool = False) -> ValidationResult
             "compras_duplicadas_sot": 0,
             "motivos_divergencia": {},
             "soma_valor_stg": "0",
+            "soma_valor_aprovadas": "0",
             "periodo_data_inicial": None,
             "periodo_data_final": None,
         }
@@ -401,6 +402,7 @@ def executar_validacao_compras(reset_tracking: bool = False) -> ValidationResult
     compras_aprovadas = 0
     compras_divergentes = 0
     compras_duplicadas_sot = 0
+    soma_valor_aprovadas = Decimal("0")
     divergencias: list[dict[str, Any]] = []
     inconsistencias: list[dict[str, Any]] = []
     motivos_count: dict[str, int] = {motivo: 0 for motivo in sorted(MOTIVOS_DIVERGENCIA_VALIDOS)}
@@ -538,7 +540,10 @@ def executar_validacao_compras(reset_tracking: bool = False) -> ValidationResult
                 compra.status_tratamento = STG_Compra.TRATAMENTO_VALIDADO
                 compra.snapshot_divergencia = {}
                 compras_aprovadas += 1
+                soma_valor_aprovadas += compra.valor_total or Decimal("0")
             else:
+                if "duplicado_sot" in motivos_limpos:
+                    compra.status_tratamento = STG_Compra.TRATAMENTO_NEGLIGENCIADO
                 compra.status_validacao = STG_Compra.STATUS_DIVERGENTE
                 compra.snapshot_divergencia = snapshot
                 if compra.status_tratamento != STG_Compra.TRATAMENTO_NEGLIGENCIADO:
@@ -566,15 +571,9 @@ def executar_validacao_compras(reset_tracking: bool = False) -> ValidationResult
         else:
             compra.status_validacao = STG_Compra.STATUS_VALIDADO
             compra.snapshot_divergencia = {}
-            if compra.status_tratamento in {
-                STG_Compra.TRATAMENTO_AJUSTADO,
-                STG_Compra.TRATAMENTO_VALIDADO,
-            }:
-                # Preserve manual-resolved state so a later revalidation does not rematch this row automatically.
-                compra.status_tratamento = STG_Compra.TRATAMENTO_VALIDADO
-            elif not compra.validacao_override:
-                compra.status_tratamento = STG_Compra.TRATAMENTO_PENDENTE
+            compra.status_tratamento = STG_Compra.TRATAMENTO_VALIDADO
             compras_aprovadas += 1
+            soma_valor_aprovadas += compra.valor_total or Decimal("0")
 
     STG_Compra.objects.bulk_update(
         compras,
@@ -604,6 +603,7 @@ def executar_validacao_compras(reset_tracking: bool = False) -> ValidationResult
         "compras_duplicadas_sot": compras_duplicadas_sot,
         "motivos_divergencia": motivos_count,
         "soma_valor_stg": str(soma_valor_stg),
+        "soma_valor_aprovadas": str(soma_valor_aprovadas),
         "periodo_data_inicial": periodo["data_inicial"].isoformat() if periodo["data_inicial"] else None,
         "periodo_data_final": periodo["data_final"].isoformat() if periodo["data_final"] else None,
         "compras_negligenciadas": STG_Compra.objects.filter(
@@ -658,6 +658,11 @@ def obter_kpis_reconciliacao_compras() -> dict[str, Any]:
         "compras_duplicadas_sot": compras_duplicadas_sot,
         "motivos_divergencia": motivos_count,
         "soma_valor_stg": str(soma_valor.get("total") or Decimal("0")),
+        "soma_valor_aprovadas": str(
+            STG_Compra.objects.filter(
+                status_validacao__in=_status_validacao_validada_values(STG_Compra)
+            ).aggregate(total=Sum("valor_total")).get("total") or Decimal("0")
+        ),
         "periodo_data_inicial": periodo["data_inicial"].isoformat() if periodo["data_inicial"] else None,
         "periodo_data_final": periodo["data_final"].isoformat() if periodo["data_final"] else None,
         "compras_negligenciadas": STG_Compra.objects.filter(
@@ -692,17 +697,19 @@ def obter_queryset_divergencias_reconciliacao_compras(
     nfe_status_norm = _normalize_text(nfe_status).upper()
     id_compra_norm = _normalize_text(id_compra_legado)
 
-    compras = STG_Compra.objects.filter(status_validacao=STG_Compra.STATUS_DIVERGENTE)
     if status_norm:
         if status_norm == STG_Compra.TRATAMENTO_PENDENTE:
-            compras = compras.filter(
+            compras = STG_Compra.objects.filter(
+                status_validacao=STG_Compra.STATUS_DIVERGENTE,
                 status_tratamento__in=[
                     STG_Compra.TRATAMENTO_PENDENTE,
                     STG_Compra.TRATAMENTO_AJUSTADO,
-                ]
+                ],
             )
         else:
-            compras = compras.filter(status_tratamento=status_norm)
+            compras = STG_Compra.objects.filter(status_tratamento=status_norm)
+    else:
+        compras = STG_Compra.objects.filter(status_validacao=STG_Compra.STATUS_DIVERGENTE)
     if nfe_status_norm:
         compras = compras.filter(nfe_status=nfe_status_norm)
     if id_compra_norm:

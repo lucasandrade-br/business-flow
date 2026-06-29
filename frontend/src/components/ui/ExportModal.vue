@@ -36,7 +36,7 @@
           <button
             type="button"
             class="rounded px-3 py-1.5"
-            :class="activeMode === 'BASICO' ? 'bg-[#a82631] text-white' : 'text-gray-700 hover:bg-gray-50'"
+            :class="activeMode === 'BASICO' ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-50'"
             @click="activeMode = 'BASICO'"
           >
             Basico
@@ -44,7 +44,7 @@
           <button
             type="button"
             class="rounded px-3 py-1.5"
-            :class="activeMode === 'SQL' ? 'bg-[#a82631] text-white' : 'text-gray-700 hover:bg-gray-50'"
+            :class="activeMode === 'SQL' ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-50'"
             @click="activeMode = 'SQL'"
           >
             Avancado
@@ -87,7 +87,7 @@
             v-for="option in formatOptions"
             :key="option.value"
             class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors"
-            :class="selectedFormat === option.value ? 'border-[#a82631] bg-[#a82631] text-white' : 'border-gray-200 text-gray-700 hover:bg-gray-50'"
+            :class="selectedFormat === option.value ? 'border-black bg-black text-white' : 'border-gray-200 text-gray-700 hover:bg-gray-50'"
           >
             <input v-model="selectedFormat" type="radio" :value="option.value" class="sr-only" />
             {{ option.label }}
@@ -123,7 +123,7 @@
       </button>
       <button
         type="button"
-        class="rounded-md bg-[#a82631] px-3 py-2 text-xs font-medium text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+        class="rounded-md bg-black px-3 py-2 text-xs font-medium text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
         :disabled="loading"
         @click="confirm"
       >
