@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.db.models import Max, Min, Sum
+from django.db.models import Count, Exists, Max, Min, OuterRef, Q, QuerySet, Sum
 from django.utils import timezone
 from openpyxl import load_workbook
 from openpyxl.utils.datetime import from_excel
@@ -30,7 +30,7 @@ from apps.cadastros.models import (
 )
 from apps.integracao.hash_engine import percentual_semelhanca_textual
 from apps.validacao.services_legacy import contar_pendencias_validacao
-from apps.validacao.models import STG_AuditoriaPlanilha, STG_ItemVenda, STG_PagamentoVenda, STG_Venda
+from apps.validacao.models import STG_AuditoriaPlanilha, STG_ItemVenda, STG_PagamentoVenda, STG_Venda, STG_VendaMotivoDivergencia
 from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
 
 
@@ -986,6 +986,7 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
     qtd_validadas_finalizadas = 0
     qtd_auditoria_finalizadas = 0
 
+    venda_motivos_map: dict[int, list[str]] = {}
     vendas = list(STG_Venda.objects.all())
     for venda in vendas:
         key = (venda.tipo_documento, int(venda.id_legado))
@@ -1037,6 +1038,7 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
             venda.status_validacao = STG_Venda.STATUS_DIVERGENTE
             venda.snapshot_divergencia = snapshot
             clean_motivos = sorted(set(motivos))
+            venda_motivos_map[venda.pk] = clean_motivos
             for motivo in clean_motivos:
                 motivos_count[motivo] += 1
 
@@ -1059,7 +1061,10 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
             aprovadas += 1
             venda.status_validacao = STG_Venda.STATUS_APROVADO
             venda.snapshot_divergencia = {}
-            if not venda.validacao_override:
+            if not venda.validacao_override and venda.status_tratamento not in {
+                STG_Venda.TRATAMENTO_AJUSTADO,
+                STG_Venda.TRATAMENTO_VALIDADO,
+            }:
                 venda.status_tratamento = STG_Venda.TRATAMENTO_PENDENTE
 
         if venda.status_validacao == STG_Venda.STATUS_APROVADO and status_venda_norm != "C":
@@ -1068,6 +1073,21 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
 
     if vendas:
         STG_Venda.objects.bulk_update(vendas, ["status_validacao", "status_tratamento", "snapshot_divergencia"], batch_size=2000)
+
+    # Sincroniza tabela M:N de motivos de divergência
+    pks_processadas = [v.pk for v in vendas]
+    if pks_processadas:
+        STG_VendaMotivoDivergencia.objects.filter(stg_venda_id__in=pks_processadas).delete()
+    if venda_motivos_map:
+        STG_VendaMotivoDivergencia.objects.bulk_create(
+            [
+                STG_VendaMotivoDivergencia(stg_venda_id=pk, motivo=m)
+                for pk, motivos_lista in venda_motivos_map.items()
+                for m in motivos_lista
+            ],
+            batch_size=2000,
+            ignore_conflicts=True,
+        )
 
     kpis = {
         "total_vendas_stg": len(vendas),
@@ -1106,18 +1126,121 @@ def executar_tripla_validacao(reset_tracking: bool = False) -> ValidationResult:
 
 
 def obter_kpis_reconciliacao() -> dict[str, Any]:
-    validation = executar_tripla_validacao(reset_tracking=False)
-    return validation.kpis
+    """Retorna KPIs da reconciliação via aggregates diretos, sem re-executar a validação."""
+    _DEC_ZERO = Decimal("0")
+
+    # 1 query: contagens e somas financeiras de STG_Venda
+    stats = STG_Venda.objects.aggregate(
+        total_vendas_stg=Count("id_stg_venda"),
+        vendas_aprovadas=Count(
+            "id_stg_venda",
+            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO),
+        ),
+        vendas_divergentes=Count(
+            "id_stg_venda",
+            filter=Q(
+                status_validacao=STG_Venda.STATUS_DIVERGENTE,
+                status_tratamento__in=[STG_Venda.TRATAMENTO_PENDENTE, STG_Venda.TRATAMENTO_AJUSTADO],
+            ),
+        ),
+        vendas_negligenciadas=Count(
+            "id_stg_venda",
+            filter=Q(status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO),
+        ),
+        vendas_tratadas=Count(
+            "id_stg_venda",
+            filter=Q(status_validacao=STG_Venda.STATUS_DIVERGENTE)
+            & ~Q(status_tratamento__in=[STG_Venda.TRATAMENTO_PENDENTE, STG_Venda.TRATAMENTO_AJUSTADO]),
+        ),
+        soma_total=Sum("valor_final"),
+        soma_canceladas=Sum("valor_final", filter=Q(status_venda__iexact="C")),
+        soma_aprovadas_nao_canceladas=Sum(
+            "valor_final",
+            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO) & ~Q(status_venda__iexact="C"),
+        ),
+        qtd_aprovadas_nao_canceladas=Count(
+            "id_stg_venda",
+            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO) & ~Q(status_venda__iexact="C"),
+        ),
+        data_inicial=Min("data_venda"),
+        data_final=Max("data_venda"),
+    )
+
+    soma_total = stats["soma_total"] or _DEC_ZERO
+    soma_canceladas = stats["soma_canceladas"] or _DEC_ZERO
+    soma_stg_finalizadas = soma_total - soma_canceladas
+    soma_validadas = stats["soma_aprovadas_nao_canceladas"] or _DEC_ZERO
+
+    # 1 query: contagem por motivo via tabela M:N
+    motivos_count: dict[str, int] = {
+        "divergencia_totais": 0,
+        "divergencia_formato": 0,
+        "duplicado_sot": 0,
+    }
+    for row in STG_VendaMotivoDivergencia.objects.values("motivo").annotate(count=Count("id_stg_venda_motivo")):
+        motivos_count[row["motivo"]] = row["count"]
+
+    # 2 queries: auditoria excluindo vendas canceladas via EXISTS subquery
+    _nao_cancelada_q = ~Exists(
+        STG_Venda.objects.filter(
+            tipo_documento=OuterRef("tipo_documento"),
+            id_legado=OuterRef("id_legado"),
+            status_venda__iexact="C",
+        )
+    )
+    soma_auditoria_total = STG_AuditoriaPlanilha.objects.aggregate(s=Sum("valor_total"))["s"] or _DEC_ZERO
+    soma_auditoria_finalizadas = (
+        STG_AuditoriaPlanilha.objects.filter(_nao_cancelada_q).aggregate(s=Sum("valor_total"))["s"] or _DEC_ZERO
+    )
+    soma_auditoria_canceladas = soma_auditoria_total - soma_auditoria_finalizadas
+    qtd_vendas_auditoria = (
+        STG_AuditoriaPlanilha.objects.filter(_nao_cancelada_q)
+        .values("tipo_documento", "id_legado")
+        .distinct()
+        .count()
+    )
+
+    return {
+        "total_vendas_stg": stats["total_vendas_stg"] or 0,
+        "vendas_aprovadas": stats["vendas_aprovadas"] or 0,
+        "vendas_divergentes": stats["vendas_divergentes"] or 0,
+        "vendas_duplicadas_sot": motivos_count.get("duplicado_sot", 0),
+        "motivos_divergencia": motivos_count,
+        "soma_valor_stg": str(soma_stg_finalizadas),
+        "soma_valor_stg_canceladas": str(soma_canceladas),
+        "soma_valor_auditoria": str(soma_auditoria_finalizadas),
+        "soma_valor_auditoria_canceladas": str(soma_auditoria_canceladas),
+        "qtd_vendas_validadas": stats["qtd_aprovadas_nao_canceladas"] or 0,
+        "soma_valor_vendas_validadas": str(soma_validadas),
+        "qtd_vendas_auditoria": qtd_vendas_auditoria,
+        "diferenca_total": str(soma_validadas - soma_auditoria_finalizadas),
+        "diferenca_total_stg_auditoria": str(soma_stg_finalizadas - soma_auditoria_finalizadas),
+        "vendas_tratadas": stats["vendas_tratadas"] or 0,
+        "vendas_negligenciadas": stats["vendas_negligenciadas"] or 0,
+        "periodo_data_inicial": stats["data_inicial"].isoformat() if stats["data_inicial"] else None,
+        "periodo_data_final": stats["data_final"].isoformat() if stats["data_final"] else None,
+    }
 
 
 def listar_divergencias_reconciliacao(
     *,
     motivo: str | None = None,
+    status_validacao: str | None = None,
     status_tratamento: str | None = None,
     somente_finalizados: bool = False,
     status_venda: str | None = None,
     id_legado: str | int | None = None,
-) -> list[dict[str, Any]]:
+    tipo_documento: str | None = None,
+    formato_pagamento_venda: str | None = None,
+    formato_pagamento_auditoria: str | None = None,
+    valor_venda: str | None = None,
+    data_venda: str | None = None,
+) -> QuerySet:
+    """Retorna QuerySet lazy de STG_Venda com filtros aplicados no banco.
+
+    O chamador deve paginar antes de serializar. Use serializar_divergencias_pagina()
+    para serializar apenas a página resultante.
+    """
     motivo_norm = _normalize_text(motivo).lower()
     if motivo_norm and motivo_norm not in MOTIVOS_DIVERGENCIA_VALIDOS:
         motivo_norm = ""
@@ -1136,28 +1259,115 @@ def listar_divergencias_reconciliacao(
     if status_venda_norm not in {"", "F", "C"}:
         status_venda_norm = ""
 
+    status_validacao_norm = _normalize_text(status_validacao).upper()
+    if status_validacao_norm not in {
+        "",
+        STG_Venda.STATUS_PENDENTE,
+        STG_Venda.STATUS_DIVERGENTE,
+        STG_Venda.STATUS_APROVADO,
+    }:
+        status_validacao_norm = ""
+
     id_legado_norm = _normalize_text(id_legado)
+    tipo_documento_norm = _normalize_text(tipo_documento).upper()
+    formato_venda_norm = _normalize_text(formato_pagamento_venda).upper()
+    formato_auditoria_norm = _normalize_text(formato_pagamento_auditoria).upper()
+    valor_venda_norm = _normalize_text(valor_venda).replace(",", ".")
+    data_venda_norm = _normalize_text(data_venda)
 
-    divergentes = (
-        STG_Venda.objects.filter(status_validacao=STG_Venda.STATUS_DIVERGENTE)
-        .prefetch_related("itens", "pagamentos")
-        .order_by("tipo_documento", "id_legado")
-    )
+    qs: QuerySet = STG_Venda.objects.all()
 
+    # Filtro por status_validacao ao nível do banco (status_validacao tem db_index=True)
+    if status_validacao_norm:
+        qs = qs.filter(status_validacao=status_validacao_norm)
+
+    # Filtro por tratamento ao nível do banco (status_tratamento tem db_index=True)
+    if status_norm == STG_Venda.TRATAMENTO_PENDENTE:
+        qs = qs.filter(
+            status_tratamento__in=[STG_Venda.TRATAMENTO_PENDENTE, STG_Venda.TRATAMENTO_AJUSTADO]
+        )
+    elif status_norm:
+        qs = qs.filter(status_tratamento=status_norm)
+
+    # Filtro por motivo via JOIN na tabela M:N (motivo tem db_index=True)
+    if motivo_norm:
+        qs = qs.filter(motivos__motivo=motivo_norm)
+
+    # Filtro por status da venda ao nível do banco
+    if somente_finalizados:
+        qs = qs.filter(status_venda__iexact="F")
+    elif status_venda_norm:
+        qs = qs.filter(status_venda__iexact=status_venda_norm)
+
+    # Filtro por id_legado ao nível do banco
     if id_legado_norm:
         try:
-            divergentes = divergentes.filter(id_legado=int(id_legado_norm))
+            qs = qs.filter(id_legado=int(id_legado_norm))
         except (ValueError, TypeError):
-            divergentes = divergentes.none()
+            return STG_Venda.objects.none()
 
-    auditoria_rows = STG_AuditoriaPlanilha.objects.values(
-        "tipo_documento",
-        "id_legado",
-        "tipo_pagamento_descricao",
-        "valor_total",
-    )
+    # Filtro por tipo_documento ao nível do banco (campo indexado)
+    if tipo_documento_norm in {"DAV", "NFCE"}:
+        qs = qs.filter(tipo_documento=tipo_documento_norm)
+
+    # Filtro por data_venda ao nível do banco (campo indexado)
+    if data_venda_norm:
+        try:
+            qs = qs.filter(data_venda=date.fromisoformat(data_venda_norm))
+        except ValueError:
+            return STG_Venda.objects.none()
+
+    # Filtro por valor_final (campo decimal)
+    if valor_venda_norm:
+        try:
+            qs = qs.filter(valor_final=Decimal(valor_venda_norm))
+        except InvalidOperation:
+            return STG_Venda.objects.none()
+
+    # Filtro por formato de pagamento da venda via STG_PagamentoVenda (relacional)
+    if formato_venda_norm:
+        qs = qs.filter(
+            pagamentos__tipo_pagamento_descricao_legado__iexact=formato_venda_norm
+        ).distinct()
+
+    # Filtro por formato de pagamento da auditoria via STG_AuditoriaPlanilha (Exists)
+    if formato_auditoria_norm:
+        qs = qs.filter(
+            Exists(
+                STG_AuditoriaPlanilha.objects.filter(
+                    tipo_documento=OuterRef("tipo_documento"),
+                    id_legado=OuterRef("id_legado"),
+                    tipo_pagamento_descricao__iexact=formato_auditoria_norm,
+                )
+            )
+        )
+
+    return qs.order_by("tipo_documento", "id_legado")
+
+
+def serializar_divergencias_pagina(page: list) -> list[dict[str, Any]]:
+    """Serializa uma página paginada de STG_Venda.
+
+    Carrega itens, pagamentos e auditoria apenas para os registros desta página,
+    evitando trazer toda a base para a memória.
+    """
+    if not page:
+        return []
+
+    from django.db.models.query import prefetch_related_objects
+
+    # Popula cache de prefetch apenas para as N vendas desta página
+    prefetch_related_objects(page, "itens", "pagamentos")
+
+    # Auditoria apenas para estas vendas
+    q_auditoria: Q = Q()
+    for v in page:
+        q_auditoria |= Q(tipo_documento=v.tipo_documento, id_legado=v.id_legado)
+
     auditoria_details_map: dict[tuple[str, int], list[dict[str, Any]]] = {}
-    for row in auditoria_rows:
+    for row in STG_AuditoriaPlanilha.objects.filter(q_auditoria).values(
+        "tipo_documento", "id_legado", "tipo_pagamento_descricao", "valor_total"
+    ):
         key = (row["tipo_documento"], int(row["id_legado"]))
         auditoria_details_map.setdefault(key, []).append(
             {
@@ -1168,20 +1378,10 @@ def listar_divergencias_reconciliacao(
 
     cache_forma_canonica: dict[tuple[str, int], int | None] = {}
     rows: list[dict[str, Any]] = []
-    for venda in divergentes:
-        if status_norm and venda.status_tratamento != status_norm:
-            continue
 
-        if somente_finalizados and _normalize_text(venda.status_venda).upper() != "F":
-            continue
-
-        if status_venda_norm and _normalize_text(venda.status_venda).upper() != status_venda_norm:
-            continue
-
+    for venda in page:
         snapshot = venda.snapshot_divergencia or {}
         motivos = snapshot.get("motivos") or []
-        if motivo_norm and motivo_norm not in motivos:
-            continue
 
         pagamentos_detalhe = []
         for pg in venda.pagamentos.all():
@@ -1196,7 +1396,9 @@ def listar_divergencias_reconciliacao(
                         id_forma_origem=int(pg.id_tipo_pagamento_legado),
                         descricao_origem=_normalize_text(pg.tipo_pagamento_descricao_legado),
                     )
-                    id_forma_canonica = int(forma_canonica.id_forma) if forma_canonica is not None else None
+                    id_forma_canonica = (
+                        int(forma_canonica.id_forma) if forma_canonica is not None else None
+                    )
                     cache_forma_canonica[chave_cache] = id_forma_canonica
 
             pagamentos_detalhe.append(
@@ -1217,8 +1419,13 @@ def listar_divergencias_reconciliacao(
                 "venda": f"{venda.tipo_documento} #{int(venda.id_legado):06d}",
                 "motivos": motivos,
                 "tratamento": venda.status_tratamento,
+                "status_validacao": venda.status_validacao,
                 "status_venda": venda.status_venda,
                 "nome_cliente_legado": venda.nome_cliente_legado,
+                "nfce_numero": venda.nfce_numero,
+                "nfce_status": venda.nfce_status,
+                "importacao_id": venda.importacao_id,
+                "importacao_origem": venda.importacao_origem,
                 "stg": {
                     "valor_documento": snapshot.get("total_documento"),
                     "total_itens": snapshot.get("total_itens"),
@@ -1242,7 +1449,9 @@ def listar_divergencias_reconciliacao(
                 "auditoria": {
                     "valor_total": snapshot.get("total_auditoria"),
                     "pagamentos": snapshot.get("formato_auditoria") or [],
-                    "pagamentos_detalhe": auditoria_details_map.get((venda.tipo_documento, int(venda.id_legado)), []),
+                    "pagamentos_detalhe": auditoria_details_map.get(
+                        (venda.tipo_documento, int(venda.id_legado)), []
+                    ),
                 },
                 "totais": {
                     "total_documento": snapshot.get("total_documento"),
@@ -1251,7 +1460,11 @@ def listar_divergencias_reconciliacao(
                     "total_pagamentos": snapshot.get("total_pagamentos"),
                     "total_auditoria": snapshot.get("total_auditoria"),
                 },
-                "atualizado_em": venda.tratamento_atualizado_em.isoformat() if venda.tratamento_atualizado_em else None,
+                "atualizado_em": (
+                    venda.tratamento_atualizado_em.isoformat()
+                    if venda.tratamento_atualizado_em
+                    else None
+                ),
             }
         )
 
@@ -1387,6 +1600,8 @@ def aplicar_tratamento_divergencia(
                     update_fields=["valor_pago", "id_tipo_pagamento_legado", "tipo_pagamento_descricao_legado"]
                 )
 
+            venda.status_tratamento = STG_Venda.TRATAMENTO_AJUSTADO
+            update_fields_venda.append("status_tratamento")
             venda.tratamento_atualizado_em = timezone.now()
             venda.save(update_fields=update_fields_venda)
 
@@ -1505,6 +1720,113 @@ def aplicar_tratamento_divergencias_lote(
 def listar_formas_pagamento() -> list[dict[str, Any]]:
     formas = FormaPagamento.objects.order_by("descricao", "id_forma")
     return [{"id_forma": int(item.id_forma), "descricao": item.descricao} for item in formas]
+
+
+def listar_opcoes_filtro_pagamento() -> dict[str, list[str]]:
+    """Retorna listas distintas de formatos de pagamento presentes nos dados de staging.
+
+    Usado para popular os dropdowns de filtro no painel de gerenciamento.
+    """
+    formas_venda = (
+        STG_PagamentoVenda.objects
+        .exclude(tipo_pagamento_descricao_legado="")
+        .values_list("tipo_pagamento_descricao_legado", flat=True)
+        .distinct()
+        .order_by("tipo_pagamento_descricao_legado")
+    )
+    formas_auditoria = (
+        STG_AuditoriaPlanilha.objects
+        .exclude(tipo_pagamento_descricao="")
+        .values_list("tipo_pagamento_descricao", flat=True)
+        .distinct()
+        .order_by("tipo_pagamento_descricao")
+    )
+    return {
+        "formas_pagamento_venda": list(formas_venda),
+        "formas_pagamento_auditoria": list(formas_auditoria),
+    }
+
+
+def obter_par_nfce_dav(*, nfce_id_legado: int) -> dict[str, Any]:
+    """Retorna os dados do par NFCE + DAV para exibicao no modal de resolucao."""
+    nfce = STG_Venda.objects.filter(tipo_documento=STG_Venda.TIPO_NFCE, id_legado=nfce_id_legado).first()
+    if nfce is None:
+        raise ValueError("NFCE nao encontrada.")
+
+    dav = None
+    if nfce.importacao_id:
+        dav = STG_Venda.objects.filter(tipo_documento=STG_Venda.TIPO_DAV, id_legado=nfce.importacao_id).first()
+
+    def _serializar(v: STG_Venda | None) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        tem_auditoria = STG_AuditoriaPlanilha.objects.filter(
+            tipo_documento=v.tipo_documento, id_legado=v.id_legado
+        ).exists()
+        return {
+            "tipo_documento": v.tipo_documento,
+            "id_legado": v.id_legado,
+            "venda": f"{v.tipo_documento} #{int(v.id_legado):06d}",
+            "data_venda": v.data_venda.isoformat() if v.data_venda else None,
+            "valor_final": str(v.valor_final) if v.valor_final is not None else None,
+            "status_validacao": v.status_validacao,
+            "status_tratamento": v.status_tratamento,
+            "status_venda": v.status_venda,
+            "nome_cliente_legado": v.nome_cliente_legado,
+            "nfce_numero": v.nfce_numero,
+            "nfce_status": v.nfce_status,
+            "tem_auditoria": tem_auditoria,
+        }
+
+    return {
+        "nfce": _serializar(nfce),
+        "dav": _serializar(dav),
+    }
+
+
+def resolver_par_nfce_dav(*, nfce_id_legado: int, decisao: str) -> dict[str, Any]:
+    """Resolve duplicata NFCE/DAV.
+
+    decisao='manter_dav': negligencia a NFCE.
+    decisao='manter_nfce': negligencia o DAV e aprova a NFCE com validacao_override.
+    """
+    decisao_norm = _normalize_text(decisao).lower()
+    if decisao_norm not in {"manter_dav", "manter_nfce"}:
+        raise ValueError("Decisao invalida. Use 'manter_dav' ou 'manter_nfce'.")
+
+    nfce = STG_Venda.objects.filter(tipo_documento=STG_Venda.TIPO_NFCE, id_legado=nfce_id_legado).first()
+    if nfce is None:
+        raise ValueError("NFCE nao encontrada.")
+    if not nfce.importacao_id:
+        raise ValueError("Esta NFCE nao possui DAV de origem identificado.")
+
+    dav = STG_Venda.objects.filter(tipo_documento=STG_Venda.TIPO_DAV, id_legado=nfce.importacao_id).first()
+    agora = timezone.now()
+
+    with transaction.atomic():
+        if decisao_norm == "manter_dav":
+            nfce.status_tratamento = STG_Venda.TRATAMENTO_NEGLIGENCIADO
+            nfce.tratamento_atualizado_em = agora
+            nfce.save(update_fields=["status_tratamento", "tratamento_atualizado_em"])
+        else:  # manter_nfce
+            if dav is not None:
+                dav.status_tratamento = STG_Venda.TRATAMENTO_NEGLIGENCIADO
+                dav.tratamento_atualizado_em = agora
+                dav.save(update_fields=["status_tratamento", "tratamento_atualizado_em"])
+            nfce.validacao_override = True
+            nfce.status_validacao = STG_Venda.STATUS_APROVADO
+            nfce.status_tratamento = STG_Venda.TRATAMENTO_VALIDADO
+            nfce.tratamento_atualizado_em = agora
+            nfce.save(
+                update_fields=[
+                    "validacao_override",
+                    "status_validacao",
+                    "status_tratamento",
+                    "tratamento_atualizado_em",
+                ]
+            )
+
+    return {"kpis": obter_kpis_reconciliacao()}
 
 
 def _importar_planilhas_auditoria_sync(payloads: list[dict[str, Any]], job_id: str | None = None) -> dict[str, Any]:
@@ -2030,6 +2352,10 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
                 usuario=item_venda["usuario"],
                 valor_total_documento=stg_venda.valor_final or Decimal("0"),
                 momento_consolidacao=momento_consolidacao,
+                nfce_numero=stg_venda.nfce_numero or "",
+                nfce_status=stg_venda.nfce_status or "",
+                importacao_id=stg_venda.importacao_id,
+                importacao_origem=stg_venda.importacao_origem or "",
             )
 
             ItemVenda.objects.bulk_create(

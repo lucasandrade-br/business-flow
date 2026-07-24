@@ -67,9 +67,34 @@ class STG_Venda(BaseSTGModel):
 	validacao_override = models.BooleanField(default=False)
 	snapshot_divergencia = models.JSONField(default=dict, blank=True)
 	tratamento_atualizado_em = models.DateTimeField(null=True, blank=True)
+	importacao_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+	importacao_origem = models.CharField(max_length=30, blank=True, default="")
 
 	class Meta:
 		db_table = "stg_venda"
+
+
+class STG_VendaMotivoDivergencia(models.Model):
+	MOTIVO_DIVERGENCIA_TOTAIS = "divergencia_totais"
+	MOTIVO_DIVERGENCIA_FORMATO = "divergencia_formato"
+	MOTIVO_DUPLICADO_SOT = "duplicado_sot"
+	MOTIVO_CHOICES = (
+		(MOTIVO_DIVERGENCIA_TOTAIS, "Diverg\u00eancia de totais"),
+		(MOTIVO_DIVERGENCIA_FORMATO, "Diverg\u00eancia de formato"),
+		(MOTIVO_DUPLICADO_SOT, "Duplicado no SOT"),
+	)
+
+	id_stg_venda_motivo = models.BigAutoField(primary_key=True, db_column="id_stg_venda_motivo")
+	stg_venda = models.ForeignKey(
+		"validacao.STG_Venda",
+		on_delete=models.CASCADE,
+		related_name="motivos",
+	)
+	motivo = models.CharField(max_length=60, choices=MOTIVO_CHOICES, db_index=True)
+
+	class Meta:
+		db_table = "stg_venda_motivo_divergencia"
+		unique_together = [("stg_venda", "motivo")]
 
 
 class STG_ItemVenda(BaseSTGModel):

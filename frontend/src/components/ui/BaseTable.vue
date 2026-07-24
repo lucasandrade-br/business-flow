@@ -33,14 +33,16 @@
             :class="[
               resolveRowClass(row),
               selectedRowKeySet.has(row[rowKey]) ? 'ring-1 ring-inset ring-[#93c5fd]' : '',
+              rowClickable ? 'cursor-pointer' : '',
             ]"
+            @click="rowClickable ? $emit('row-click', row) : undefined"
           >
             <td v-for="column in columns" :key="column.key" class="px-4 py-3" :class="column.cellClass">
               <slot :name="`cell-${column.key}`" :row="row">
                 {{ row[column.key] }}
               </slot>
             </td>
-            <td v-if="$slots.actions" class="px-4 py-3 text-right">
+            <td v-if="$slots.actions" class="px-4 py-3 text-right" @click.stop>
               <slot name="actions" :row="row" />
             </td>
           </tr>
@@ -89,9 +91,10 @@ const props = defineProps({
   emptyText: { type: String, default: "Nenhum registro." },
   selectedRowKeys: { type: Array, default: () => [] },
   rowClass: { type: Function, default: null },
+  rowClickable: { type: Boolean, default: false },
 });
 
-defineEmits(["next", "previous"]);
+defineEmits(["next", "previous", "row-click"]);
 
 const hasHeaderText = computed(() => {
   return Boolean(String(props.title || "").trim() || String(props.subtitle || "").trim());

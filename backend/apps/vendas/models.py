@@ -31,6 +31,10 @@ class Venda(models.Model):
 	)
 	valor_total_documento = models.DecimalField(max_digits=18, decimal_places=6)
 	momento_consolidacao = models.DateTimeField(null=True, blank=True)
+	nfce_numero = models.CharField(max_length=40, blank=True, default="")
+	nfce_status = models.CharField(max_length=40, blank=True, default="")
+	importacao_id = models.BigIntegerField(null=True, blank=True)
+	importacao_origem = models.CharField(max_length=30, blank=True, default="")
 
 	class Meta:
 		db_table = "venda"

@@ -21,7 +21,11 @@ from apps.validacao.services.auditoria_planilha import (
     limpar_fluxo_reconciliacao,
     listar_divergencias_reconciliacao,
     listar_formas_pagamento,
+    listar_opcoes_filtro_pagamento,
     obter_kpis_reconciliacao,
+    obter_par_nfce_dav,
+    resolver_par_nfce_dav,
+    serializar_divergencias_pagina,
     start_importacao_planilhas_auditoria,
 )
 
@@ -43,7 +47,11 @@ __all__ = [
     "consolidar_stg_para_sot",
     "obter_kpis_reconciliacao",
     "listar_divergencias_reconciliacao",
+    "serializar_divergencias_pagina",
     "aplicar_tratamento_divergencia",
     "aplicar_tratamento_divergencias_lote",
     "listar_formas_pagamento",
+    "listar_opcoes_filtro_pagamento",
+    "obter_par_nfce_dav",
+    "resolver_par_nfce_dav",
 ]

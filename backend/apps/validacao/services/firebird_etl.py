@@ -176,6 +176,7 @@ def _extract_documento_3_blocos(
     coluna_fk_itens: str,
     data_inicial: date,
     data_final: date,
+    extra_select_cabecalho: str = "",
 ) -> dict[str, int]:
     sql_cabecalho = f"""
         SELECT
@@ -189,6 +190,7 @@ def _extract_documento_3_blocos(
             U.USUARIO AS NOME_USUARIO_LEGADO,
                         0 AS ID_CLIENTE_NORM,
                         '{CLIENTE_PADRAO_NOME}' AS NOME_CLIENTE_NORM
+            {extra_select_cabecalho}
         FROM {tabela_cabecalho} C
         LEFT JOIN USUARIO U ON C.ID_USUARIO = U.ID
         WHERE C.DATA_VENDA BETWEEN ? AND ?
@@ -211,6 +213,7 @@ def _extract_documento_3_blocos(
             U.USUARIO AS NOME_USUARIO_LEGADO,
             C.ID_CLIENTE AS ID_CLIENTE_NORM,
             CL.CLIENTE AS NOME_CLIENTE_NORM
+            {extra_select_cabecalho}
         FROM {tabela_cabecalho} C
         INNER JOIN CLIENTES CL ON C.ID_CLIENTE = CL.ID_CLIENTE
         LEFT JOIN USUARIO U ON C.ID_USUARIO = U.ID
@@ -230,6 +233,12 @@ def _extract_documento_3_blocos(
     for row in headers_rows:
         id_legado = int(row[0])
         id_cliente_legado, nome_cliente_legado = _normalizar_dados_cliente_legado(row[8], row[9])
+        extra_kwargs = {}
+        if extra_select_cabecalho:
+            extra_kwargs["nfce_numero"] = str(row[10]) if row[10] is not None else ""
+            extra_kwargs["nfce_status"] = _normalize_text(row[11])
+            extra_kwargs["importacao_id"] = int(row[12]) if row[12] is not None else None
+            extra_kwargs["importacao_origem"] = _normalize_text(row[13])
         stg_vendas.append(
             STG_Venda(
                 tipo_documento=tipo_documento,
@@ -243,6 +252,7 @@ def _extract_documento_3_blocos(
                 nome_usuario_legado=_normalize_text(row[7]),
                 id_cliente_legado=id_cliente_legado,
                 nome_cliente_legado=nome_cliente_legado,
+                **extra_kwargs,
             )
         )
 
@@ -388,6 +398,7 @@ def _sincronizar_vendas_legado_once(
                 coluna_fk_itens="ID_NFCE",
                 data_inicial=data_inicial,
                 data_final=data_final,
+                extra_select_cabecalho=", C.NFCE_NUMERO, C.NFCE_STATUS, C.IMPORTACAO_ID, C.IMPORTACAO_ORIGEM",
             )
 
             dav_result = _extract_documento_3_blocos(

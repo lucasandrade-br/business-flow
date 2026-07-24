@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from django.db import OperationalError
+from django.db.models import Count, Sum
 from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
@@ -17,6 +18,8 @@ from .serializers import (
     FornecedorPendenteSerializer,
     ProdutoPendenteSerializer,
 )
+from .models import STG_Venda
+from apps.vendas.models import Venda as VendaSOT
 from apps.integracao.firebird_config import resolve_firebird_path_for_request
 from .services import (
     SincronizacaoVendasEmAndamentoError,
@@ -32,10 +35,14 @@ from .services import (
     limpar_fluxo_reconciliacao,
     listar_divergencias_reconciliacao,
     listar_formas_pagamento,
+    listar_opcoes_filtro_pagamento,
     listar_clientes_pendentes,
     listar_fornecedores_pendentes,
     listar_produtos_pendentes,
     obter_kpis_reconciliacao,
+    obter_par_nfce_dav,
+    resolver_par_nfce_dav,
+    serializar_divergencias_pagina,
     sincronizacao_vendas_em_andamento,
     start_importacao_planilhas_auditoria,
     sincronizar_vendas_legado,
@@ -46,6 +53,26 @@ from .services.auditoria_planilha import ReconciliacaoBloqueioError
 class ResumoPendenciasAPIView(APIView):
     def get(self, request: Request) -> Response:
         return Response(contar_pendencias_validacao())
+
+
+class ResumoDatasImportacaoAPIView(APIView):
+    def get(self, request: Request) -> Response:
+        rows = (
+            VendaSOT.objects
+            .values("data_venda")
+            .annotate(qtd=Count("id_venda"), total=Sum("valor_total_documento"))
+            .order_by("-data_venda")[:10]
+        )
+        return Response(
+            [
+                {
+                    "data": str(row["data_venda"]),
+                    "qtd": row["qtd"],
+                    "total": str(row["total"] or "0"),
+                }
+                for row in rows
+            ]
+        )
 
 
 def _resolver_page_size_pendentes(request: Request) -> int:
@@ -317,27 +344,40 @@ class ReconciliacaoDivergenciasAPIView(APIView):
 
         motivo = request.query_params.get("motivo", "")
         tratamento = request.query_params.get("tratamento", "")
+        status_validacao = request.query_params.get("status_validacao", "")
         somente_finalizados_raw = str(request.query_params.get("somente_finalizados", "")).strip().lower()
         somente_finalizados = somente_finalizados_raw in {"1", "true", "yes", "sim", "on"}
         status_venda = request.query_params.get("status_venda", "")
         id_legado = request.query_params.get("id_legado", "")
+        tipo_documento = request.query_params.get("tipo_documento", "")
+        formato_pagamento_venda = request.query_params.get("formato_pagamento_venda", "")
+        formato_pagamento_auditoria = request.query_params.get("formato_pagamento_auditoria", "")
+        valor_venda = request.query_params.get("valor_venda", "")
+        data_venda = request.query_params.get("data_venda", "")
 
         try:
-            rows = listar_divergencias_reconciliacao(
+            qs = listar_divergencias_reconciliacao(
                 motivo=motivo,
+                status_validacao=status_validacao,
                 status_tratamento=tratamento,
                 somente_finalizados=somente_finalizados,
                 status_venda=status_venda,
                 id_legado=id_legado,
+                tipo_documento=tipo_documento,
+                formato_pagamento_venda=formato_pagamento_venda,
+                formato_pagamento_auditoria=formato_pagamento_auditoria,
+                valor_venda=valor_venda,
+                data_venda=data_venda,
             )
 
             paginator = PageNumberPagination()
-            paginator.page_size = 20
-            page = paginator.paginate_queryset(rows, request, view=self)
+            paginator.page_size = 70
+            page = paginator.paginate_queryset(qs, request, view=self)
+            rows = serializar_divergencias_pagina(page or [])
 
             return paginator.get_paginated_response(
                 {
-                    "rows": page,
+                    "rows": rows,
                     "kpis": obter_kpis_reconciliacao(),
                 }
             )
@@ -424,3 +464,51 @@ class ReconciliacaoTratarDivergenciaLoteAPIView(APIView):
 class ReconciliacaoFormasPagamentoAPIView(APIView):
     def get(self, request: Request) -> Response:
         return Response({"rows": listar_formas_pagamento()}, status=status.HTTP_200_OK)
+
+
+class ReconciliacaoOpcoesFiltroAPIView(APIView):
+    def get(self, request: Request) -> Response:
+        return Response(listar_opcoes_filtro_pagamento(), status=status.HTTP_200_OK)
+
+
+class ReconciliacaoParNfceDavAPIView(APIView):
+    def get(self, request: Request) -> Response:
+        nfce_id_legado_raw = request.query_params.get("nfce_id_legado", "")
+        try:
+            nfce_id_legado = int(nfce_id_legado_raw)
+        except (ValueError, TypeError):
+            return Response(
+                {"detail": "nfce_id_legado invalido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            result = obter_par_nfce_dav(nfce_id_legado=nfce_id_legado)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        return Response(result, status=status.HTTP_200_OK)
+
+    def post(self, request: Request) -> Response:
+        nfce_id_legado_raw = request.data.get("nfce_id_legado")
+        decisao = str(request.data.get("decisao") or "").strip().lower()
+        try:
+            nfce_id_legado = int(nfce_id_legado_raw)
+        except (ValueError, TypeError):
+            return Response(
+                {"detail": "nfce_id_legado invalido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if decisao not in {"manter_dav", "manter_nfce"}:
+            return Response(
+                {"detail": "Decisao invalida. Use 'manter_dav' ou 'manter_nfce'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            result = resolver_par_nfce_dav(nfce_id_legado=nfce_id_legado, decisao=decisao)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(
+                {"detail": "Falha ao resolver par NFCE/DAV."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(result, status=status.HTTP_200_OK)
