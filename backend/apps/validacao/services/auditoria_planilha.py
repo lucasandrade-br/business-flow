@@ -1134,7 +1134,8 @@ def obter_kpis_reconciliacao() -> dict[str, Any]:
         total_vendas_stg=Count("id_stg_venda"),
         vendas_aprovadas=Count(
             "id_stg_venda",
-            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO),
+            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO)
+            & ~Q(status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO),
         ),
         vendas_divergentes=Count(
             "id_stg_venda",
@@ -1156,11 +1157,15 @@ def obter_kpis_reconciliacao() -> dict[str, Any]:
         soma_canceladas=Sum("valor_final", filter=Q(status_venda__iexact="C")),
         soma_aprovadas_nao_canceladas=Sum(
             "valor_final",
-            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO) & ~Q(status_venda__iexact="C"),
+            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO)
+            & ~Q(status_venda__iexact="C")
+            & ~Q(status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO),
         ),
         qtd_aprovadas_nao_canceladas=Count(
             "id_stg_venda",
-            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO) & ~Q(status_venda__iexact="C"),
+            filter=Q(status_validacao=STG_Venda.STATUS_APROVADO)
+            & ~Q(status_venda__iexact="C")
+            & ~Q(status_tratamento=STG_Venda.TRATAMENTO_NEGLIGENCIADO),
         ),
         data_inicial=Min("data_venda"),
         data_final=Max("data_venda"),
