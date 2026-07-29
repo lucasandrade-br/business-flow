@@ -7,13 +7,14 @@ const API_BASE_URL = getApiBaseUrl();
 // refs independentes. Ao desmontar o painel os filtros são descartados.
 export function useReconciliacaoFiltros() {
   const filtroMotivo = ref("");
-  const filtroStatusValidacao = ref("DIVERGENTE");
+  const filtroStatusValidacao = ref("PENDENTE");
   const filtroTratamento = ref("PENDENTE");
   const filtroStatusVenda = ref("");
   const filtroIdLegado = ref("");
 
   // Filtros secundários
   const filtroTipoDocumento = ref("");
+  const filtroImportacaoOrigem = ref("");
   const filtroFormatoPagamentoVenda = ref("");
   const filtroFormatoPagamentoAuditoria = ref("");
   const filtroValorVenda = ref("");
@@ -51,6 +52,9 @@ export function useReconciliacaoFiltros() {
     if (filtroTipoDocumento.value) target.searchParams.set("tipo_documento", filtroTipoDocumento.value);
     else target.searchParams.delete("tipo_documento");
 
+    if (filtroImportacaoOrigem.value) target.searchParams.set("importacao_origem", filtroImportacaoOrigem.value);
+    else target.searchParams.delete("importacao_origem");
+
     if (filtroFormatoPagamentoVenda.value) target.searchParams.set("formato_pagamento_venda", filtroFormatoPagamentoVenda.value.trim().toUpperCase());
     else target.searchParams.delete("formato_pagamento_venda");
 
@@ -65,11 +69,12 @@ export function useReconciliacaoFiltros() {
 
   function limparFiltros(onLimpar) {
     filtroMotivo.value = "";
-    filtroStatusValidacao.value = "DIVERGENTE";
+    filtroStatusValidacao.value = "PENDENTE";
     filtroTratamento.value = "PENDENTE";
     filtroStatusVenda.value = "";
     filtroIdLegado.value = "";
     filtroTipoDocumento.value = "";
+    filtroImportacaoOrigem.value = "";
     filtroFormatoPagamentoVenda.value = "";
     filtroFormatoPagamentoAuditoria.value = "";
     filtroValorVenda.value = "";
@@ -84,6 +89,7 @@ export function useReconciliacaoFiltros() {
     filtroStatusVenda,
     filtroIdLegado,
     filtroTipoDocumento,
+    filtroImportacaoOrigem,
     filtroFormatoPagamentoVenda,
     filtroFormatoPagamentoAuditoria,
     filtroValorVenda,

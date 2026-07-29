@@ -33,8 +33,9 @@ export const MENSAGENS_AMIGAVEIS_BLOQUEIO = {
   consolidacao_bloqueada_precheck: "Consolidacao bloqueada por inconsistencias estruturais de pre-check.",
 };
 
-export const STATUS_TRATAMENTO_VALIDADO = "VALIDADO";
-export const STATUS_TRATAMENTO_NEGLIGENCIADO = "NEGLIGENCIADO";
+export const STATUS_TRATAMENTO_MANUAL = "MANUAL";
+export const STATUS_TRATAMENTO_AUTOMATICO = "AUTOMATICO";
+export const STATUS_VALIDACAO_NEGADO = "NEGADO";
 export const MOTIVO_DUPLICADO_SOT = "duplicado_sot";
 
 export const TABLE_COLUMNS = [
@@ -44,8 +45,8 @@ export const TABLE_COLUMNS = [
   { key: "total_documento", label: "Total Doc." },
   { key: "total_itens", label: "Total Ite." },
   { key: "total_pagamentos", label: "Total Pag." },
-  { key: "total_auditoria", label: "Total Aud." },
+  { key: "total_auditoria", label: "Total Aud.", headerClass: "bg-[#f0f7ff]", cellClass: "bg-[#f8fbff]" },
   { key: "formato_venda", label: "Form. Venda" },
-  { key: "formato_auditoria", label: "Form. Aud." },
+  { key: "formato_auditoria", label: "Form. Aud.", headerClass: "bg-[#f0f7ff]", cellClass: "bg-[#f8fbff]" },
   { key: "cliente", label: "Cliente" },
 ];

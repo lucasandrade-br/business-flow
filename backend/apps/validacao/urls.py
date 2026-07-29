@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     AprovarClienteAPIView,
     ResumoDatasImportacaoAPIView,
+    ResumoDatasSTGAPIView,
     AprovarFornecedorAPIView,
     AprovarProdutoAPIView,
     ClientesPendentesAPIView,
@@ -16,6 +17,7 @@ from .views import (
     ReconciliacaoLimparFluxoAPIView,
     ReconciliacaoOpcoesFiltroAPIView,
     ReconciliacaoParNfceDavAPIView,
+    ReconciliacaoMacroRotinaAPIView,
     ReconciliacaoTratarDivergenciaAPIView,
     ReconciliacaoTratarDivergenciaLoteAPIView,
     ResumoPendenciasAPIView,
@@ -26,6 +28,7 @@ from .views import (
 urlpatterns = [
     path("api/validacao/resumo", ResumoPendenciasAPIView.as_view(), name="validacao-resumo"),
     path("api/validacao/importacao/resumo-datas", ResumoDatasImportacaoAPIView.as_view(), name="validacao-importacao-resumo-datas"),
+    path("api/validacao/importacao/resumo-datas-stg", ResumoDatasSTGAPIView.as_view(), name="validacao-importacao-resumo-datas-stg"),
     path("api/validacao/produtos/pendentes", ProdutosPendentesAPIView.as_view(), name="produtos-pendentes"),
     path("api/validacao/produtos/aprovar", AprovarProdutoAPIView.as_view(), name="aprovar-produto"),
     path("api/validacao/clientes/pendentes", ClientesPendentesAPIView.as_view(), name="validacao-clientes-pendentes"),
@@ -40,6 +43,7 @@ urlpatterns = [
     path("api/validacao/reconciliacao/formas-pagamento", ReconciliacaoFormasPagamentoAPIView.as_view(), name="validacao-reconciliacao-formas-pagamento"),
     path("api/validacao/reconciliacao/opcoes-filtro", ReconciliacaoOpcoesFiltroAPIView.as_view(), name="validacao-reconciliacao-opcoes-filtro"),
     path("api/validacao/reconciliacao/par-nfce-dav", ReconciliacaoParNfceDavAPIView.as_view(), name="validacao-reconciliacao-par-nfce-dav"),
+    path("api/validacao/reconciliacao/macro-rotina", ReconciliacaoMacroRotinaAPIView.as_view(), name="validacao-reconciliacao-macro-rotina"),
     path("api/validacao/reconciliacao/limpar-fluxo", ReconciliacaoLimparFluxoAPIView.as_view(), name="validacao-reconciliacao-limpar-fluxo"),
     path("api/validacao/reconciliacao/divergencias/tratar", ReconciliacaoTratarDivergenciaAPIView.as_view(), name="validacao-reconciliacao-divergencias-tratar"),
     path("api/validacao/reconciliacao/divergencias/tratar-lote", ReconciliacaoTratarDivergenciaLoteAPIView.as_view(), name="validacao-reconciliacao-divergencias-tratar-lote"),

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <BaseModal
     v-model="open"
     :title="`Produto ${produto?.id_produto ?? ''}`"
@@ -277,7 +277,8 @@ import BaseModal from "@/components/ui/BaseModal.vue";
 import CurrencyInput from "@/components/ui/CurrencyInput.vue";
 import PercentInput from "@/components/ui/PercentInput.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

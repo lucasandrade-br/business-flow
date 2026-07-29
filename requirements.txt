@@ -1,0 +1,12 @@
+﻿Django>=5.0
+mysqlclient
+python-decouple
+djangorestframework
+fdb
+pytest
+pytest-django
+waitress
+django-cors-headers
+pandas
+openpyxl
+reportlab

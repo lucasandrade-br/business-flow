@@ -58,7 +58,19 @@ class FirebirdConnectionConfigAPIView(APIView):
 				status=status.HTTP_400_BAD_REQUEST,
 			)
 
-		config.save(update_fields=["modo_localizacao", "caminho_fixo", "atualizado_em"])
+		def _parse_nullable_int(value):
+			if value in (None, ""):
+				return None
+			try:
+				parsed = int(value)
+				return parsed if parsed > 0 else None
+			except (TypeError, ValueError):
+				return None
+
+		config.forma_macro_transferencia_id = _parse_nullable_int(request.data.get("forma_macro_transferencia_id"))
+		config.forma_macro_pix_id = _parse_nullable_int(request.data.get("forma_macro_pix_id"))
+
+		config.save(update_fields=["modo_localizacao", "caminho_fixo", "atualizado_em", "forma_macro_transferencia_id", "forma_macro_pix_id"])
 		return Response(serialize_firebird_connection_config(config), status=status.HTTP_200_OK)
 
 

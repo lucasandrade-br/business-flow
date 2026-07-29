@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section>
     <BaseTable
       title="Fornecedores"
@@ -86,7 +86,8 @@ import BaseFormModal from "@/components/ui/BaseFormModal.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 import ExportModal from "@/components/ui/ExportModal.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 const endpoint = `${API_BASE_URL}/api/cadastros/fornecedores`;
 
 const columns = [

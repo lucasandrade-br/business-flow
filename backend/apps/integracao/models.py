@@ -56,6 +56,8 @@ class FirebirdConnectionConfig(models.Model):
         default=MODO_FIXO,
     )
     caminho_fixo = models.CharField(max_length=1024, blank=True, default="")
+    forma_macro_transferencia_id = models.PositiveIntegerField(null=True, blank=True, default=None)
+    forma_macro_pix_id = models.PositiveIntegerField(null=True, blank=True, default=None)
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 

@@ -32,7 +32,7 @@
             class="border-b border-gray-100 transition-colors hover:bg-gray-50"
             :class="[
               resolveRowClass(row),
-              selectedRowKeySet.has(row[rowKey]) ? 'ring-1 ring-inset ring-[#93c5fd]' : '',
+              selectedRowKeySet.has(row[rowKey]) ? '[box-shadow:inset_3px_0_0_#373435]' : '',
               rowClickable ? 'cursor-pointer' : '',
             ]"
             @click="rowClickable ? $emit('row-click', row) : undefined"

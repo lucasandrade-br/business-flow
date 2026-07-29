@@ -227,7 +227,8 @@ function asMoney(value) {
 function statusValidacaoCls(s) {
   const norm = String(s || '').toUpperCase()
   if (norm === 'APROVADO') return 'font-semibold text-green-700'
-  if (norm === 'DIVERGENTE') return 'font-semibold text-red-600'
+  if (norm === 'PENDENTE') return 'font-semibold text-red-600'
+  if (norm === 'NEGADO') return 'font-semibold text-gray-400 line-through'
   return 'text-gray-500'
 }
 </script>

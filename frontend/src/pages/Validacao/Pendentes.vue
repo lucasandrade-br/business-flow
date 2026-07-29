@@ -18,7 +18,7 @@
           </div>
           <button
             type="button"
-            class="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex items-center gap-2 rounded-md bg-[#373435] px-3 py-2 text-xs font-semibold text-white hover:bg-[#2f2e2e] disabled:cursor-not-allowed disabled:opacity-70"
             :disabled="syncing"
             @click="sincronizar"
           >
@@ -76,20 +76,21 @@
           <div class="flex items-center gap-2">
             <button
               type="button"
-              class="rounded-md border border-[#03ad12] px-3 py-1.5 text-xs text-[#03ad12] hover:bg-[#d7fce1] disabled:opacity-60"
-              :disabled="!selectedRows.length || applyingBatch"
-              @click="validarSelecionados"
-            >
-              {{ applyingBatch ? "Processando..." : "Validar Selecionados" }}
-            </button>
-            <button
-              type="button"
-              class="rounded-md border border-[#a82631] px-3 py-1.5 text-xs text-[#a82631] hover:bg-[#fff5f6] disabled:opacity-60"
+              class="rounded-md bg-[#a82631] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#901f29] disabled:opacity-60"
               :disabled="!selectedRows.length || applyingBatch"
               @click="negligenciarSelecionados"
             >
               {{ applyingBatch ? "Processando..." : "Negligenciar Selecionados" }}
             </button>
+            <button
+              type="button"
+              class="rounded-md bg-[#03ad12] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#029910] disabled:opacity-60"
+              :disabled="!selectedRows.length || applyingBatch"
+              @click="validarSelecionados"
+            >
+              {{ applyingBatch ? "Processando..." : "Validar Selecionados" }}
+            </button>
+
           </div>
         </div>
       </template>

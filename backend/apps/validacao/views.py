@@ -39,6 +39,7 @@ from .services import (
     listar_clientes_pendentes,
     listar_fornecedores_pendentes,
     listar_produtos_pendentes,
+    executar_macro_rotina,
     obter_kpis_reconciliacao,
     obter_par_nfce_dav,
     resolver_par_nfce_dav,
@@ -56,12 +57,34 @@ class ResumoPendenciasAPIView(APIView):
 
 
 class ResumoDatasImportacaoAPIView(APIView):
+    """Resumo de datas com vendas na tabela oficial (SOT) — coluna direita da tela de importação."""
     def get(self, request: Request) -> Response:
         rows = (
             VendaSOT.objects
             .values("data_venda")
             .annotate(qtd=Count("id_venda"), total=Sum("valor_total_documento"))
-            .order_by("-data_venda")[:10]
+            .order_by("-data_venda")[:15]
+        )
+        return Response(
+            [
+                {
+                    "data": str(row["data_venda"]),
+                    "qtd": row["qtd"],
+                    "total": str(row["total"] or "0"),
+                }
+                for row in rows
+            ]
+        )
+
+
+class ResumoDatasSTGAPIView(APIView):
+    """Resumo de datas com vendas na tabela de staging (STG) — hub de sincronização Firebird."""
+    def get(self, request: Request) -> Response:
+        rows = (
+            STG_Venda.objects
+            .values("data_venda")
+            .annotate(qtd=Count("id_stg_venda"), total=Sum("valor_final"))
+            .order_by("-data_venda")
         )
         return Response(
             [
@@ -350,6 +373,7 @@ class ReconciliacaoDivergenciasAPIView(APIView):
         status_venda = request.query_params.get("status_venda", "")
         id_legado = request.query_params.get("id_legado", "")
         tipo_documento = request.query_params.get("tipo_documento", "")
+        importacao_origem = request.query_params.get("importacao_origem", "")
         formato_pagamento_venda = request.query_params.get("formato_pagamento_venda", "")
         formato_pagamento_auditoria = request.query_params.get("formato_pagamento_auditoria", "")
         valor_venda = request.query_params.get("valor_venda", "")
@@ -364,6 +388,7 @@ class ReconciliacaoDivergenciasAPIView(APIView):
                 status_venda=status_venda,
                 id_legado=id_legado,
                 tipo_documento=tipo_documento,
+                importacao_origem=importacao_origem,
                 formato_pagamento_venda=formato_pagamento_venda,
                 formato_pagamento_auditoria=formato_pagamento_auditoria,
                 valor_venda=valor_venda,
@@ -512,3 +537,27 @@ class ReconciliacaoParNfceDavAPIView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response(result, status=status.HTTP_200_OK)
+
+
+class ReconciliacaoMacroRotinaAPIView(APIView):
+    def post(self, request: Request) -> Response:
+        rotina = str(request.data.get("rotina") or "").strip().lower()
+        if not rotina:
+            return Response({"detail": "Campo obrigatorio: rotina."}, status=status.HTTP_400_BAD_REQUEST)
+
+        id_forma: int | None = None
+        id_forma_raw = request.data.get("id_forma")
+        if id_forma_raw not in (None, ""):
+            try:
+                id_forma = int(id_forma_raw)
+            except (TypeError, ValueError):
+                return Response({"detail": "id_forma invalido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            resultado = executar_macro_rotina(rotina=rotina, id_forma=id_forma)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"detail": "Falha ao executar macro."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(resultado, status=status.HTTP_200_OK)

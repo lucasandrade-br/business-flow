@@ -19,6 +19,7 @@ from apps.validacao.services.auditoria_planilha import (
     aplicar_tratamento_divergencia,
     aplicar_tratamento_divergencias_lote,
     consolidar_stg_para_sot,
+    executar_tripla_validacao,
 )
 
 
@@ -88,7 +89,7 @@ def _seed_venda(
     pagamento_auditoria: str = "Dinheiro",
     pagamento_stg: str = "Dinheiro",
     criar_item: bool = True,
-    status_validacao: str = STG_Venda.STATUS_DIVERGENTE,
+    status_validacao: str = STG_Venda.STATUS_PENDENTE,
     status_tratamento: str = STG_Venda.TRATAMENTO_PENDENTE,
 ) -> STG_Venda:
     usuario, cliente, _, produto, _ = _seed_base(tipo_documento)
@@ -190,7 +191,7 @@ def test_consolidacao_permite_divergencia_totais() -> None:
         total_item="80.000000",
         total_pagamento="100.000000",
         status_validacao=STG_Venda.STATUS_APROVADO,
-        status_tratamento=STG_Venda.TRATAMENTO_VALIDADO,
+        status_tratamento=STG_Venda.TRATAMENTO_MANUAL,
     )
 
     # Simula snapshot informativo de divergencia de totais em venda apta estruturalmente.
@@ -214,8 +215,8 @@ def test_consolidacao_bloqueia_divergencia_formato() -> None:
         pagamento_stg="Dinheiro",
     )
 
-    venda.status_validacao = STG_Venda.STATUS_DIVERGENTE
-    venda.status_tratamento = STG_Venda.TRATAMENTO_VALIDADO
+    venda.status_validacao = STG_Venda.STATUS_PENDENTE
+    venda.status_tratamento = STG_Venda.TRATAMENTO_MANUAL
     venda.snapshot_divergencia = {
         "motivos": ["divergencia_formato"],
         "formato_venda": ["DINHEIRO"],
@@ -251,7 +252,7 @@ def test_validar_permite_override_divergencia_formato() -> None:
 
     venda.refresh_from_db()
     assert venda.status_validacao == STG_Venda.STATUS_APROVADO
-    assert venda.status_tratamento == STG_Venda.TRATAMENTO_VALIDADO
+    assert venda.status_tratamento == STG_Venda.TRATAMENTO_MANUAL
 
 
 @pytest.mark.django_db
@@ -260,8 +261,7 @@ def test_consolidacao_permite_override_divergencia_formato() -> None:
         id_legado=90007,
         pagamento_auditoria="Cartao",
         pagamento_stg="Dinheiro",
-        status_validacao=STG_Venda.STATUS_DIVERGENTE,
-        status_tratamento=STG_Venda.TRATAMENTO_PENDENTE,
+        status_validacao=STG_Venda.STATUS_PENDENTE,
     )
 
     venda.snapshot_divergencia = {
@@ -273,3 +273,148 @@ def test_consolidacao_permite_override_divergencia_formato() -> None:
 
     resultado = consolidar_stg_para_sot(forcar_divergencia_formato=True)
     assert resultado["vendas_inseridas"] == 1
+
+
+@pytest.mark.django_db
+def test_negligenciar_venda_aprovada_automatica_torna_negado() -> None:
+    """Negligenciar uma venda APROVADO+AUTOMATICO deve resultar em NEGADO+MANUAL."""
+    venda = _seed_venda(
+        id_legado=90100,
+        status_validacao=STG_Venda.STATUS_APROVADO,
+        status_tratamento=STG_Venda.TRATAMENTO_AUTOMATICO,
+    )
+
+    resultado = aplicar_tratamento_divergencias_lote(
+        vendas=[{"tipo_documento": venda.tipo_documento, "id_legado": venda.id_legado}],
+        acao="negligenciar",
+        payload={},
+    )
+
+    venda.refresh_from_db()
+    assert resultado["processadas"] == 1
+    assert venda.status_validacao == STG_Venda.STATUS_NEGADO
+    assert venda.status_tratamento == STG_Venda.TRATAMENTO_MANUAL
+    assert venda.snapshot_divergencia == {}
+
+
+@pytest.mark.django_db
+def test_negligenciar_preservado_apos_rerun_engine() -> None:
+    """Após negligenciar, novo ciclo de validação não deve reverter o status para APROVADO."""
+    venda = _seed_venda(
+        id_legado=90101,
+        status_validacao=STG_Venda.STATUS_APROVADO,
+        status_tratamento=STG_Venda.TRATAMENTO_AUTOMATICO,
+    )
+
+    aplicar_tratamento_divergencias_lote(
+        vendas=[{"tipo_documento": venda.tipo_documento, "id_legado": venda.id_legado}],
+        acao="negligenciar",
+        payload={},
+    )
+
+    # Simula novo ciclo de validação (ex.: outro usuário rodou o motor)
+    executar_tripla_validacao(reset_tracking=False)
+
+    venda.refresh_from_db()
+    assert venda.status_validacao == STG_Venda.STATUS_NEGADO, (
+        "O motor não deve reverter a decisão MANUAL de negligenciar"
+    )
+    assert venda.status_tratamento == STG_Venda.TRATAMENTO_MANUAL
+
+
+@pytest.mark.django_db
+def test_validar_venda_negada_manual_torna_aprovado() -> None:
+    """Validar uma venda NEGADO+MANUAL deve resultar em APROVADO+MANUAL (reversão funciona nos dois sentidos)."""
+    venda = _seed_venda(
+        id_legado=90102,
+        status_validacao=STG_Venda.STATUS_NEGADO,
+        status_tratamento=STG_Venda.TRATAMENTO_MANUAL,
+    )
+
+    resultado = aplicar_tratamento_divergencias_lote(
+        vendas=[{"tipo_documento": venda.tipo_documento, "id_legado": venda.id_legado}],
+        acao="validar",
+        payload={},
+    )
+
+    venda.refresh_from_db()
+    assert resultado["processadas"] == 1
+    assert venda.status_validacao == STG_Venda.STATUS_APROVADO
+    assert venda.status_tratamento == STG_Venda.TRATAMENTO_MANUAL
+
+
+@pytest.mark.django_db
+def test_aprovado_manual_preservado_apos_rerun_engine() -> None:
+    """Venda APROVADO+MANUAL (ex.: revalidada após ter sido negada) deve sobreviver ao rerun do motor."""
+    venda = _seed_venda(
+        id_legado=90103,
+        status_validacao=STG_Venda.STATUS_APROVADO,
+        status_tratamento=STG_Venda.TRATAMENTO_MANUAL,
+    )
+
+    executar_tripla_validacao(reset_tracking=False)
+
+    venda.refresh_from_db()
+    assert venda.status_validacao == STG_Venda.STATUS_APROVADO
+    assert venda.status_tratamento == STG_Venda.TRATAMENTO_MANUAL
+
+
+@pytest.mark.django_db
+def test_editar_pagamento_resolve_divergencia_automaticamente() -> None:
+    """Editar pagamento de venda divergente que passa na revalidação deve resultar em APROVADO+MANUAL."""
+    # Cria venda com pagamento divergente (venda diz "Cartao", auditoria diz "Dinheiro")
+    venda = _seed_venda(
+        id_legado=90200,
+        pagamento_stg="Cartao",
+        pagamento_auditoria="Dinheiro",
+        status_validacao=STG_Venda.STATUS_PENDENTE,
+        status_tratamento=STG_Venda.TRATAMENTO_PENDENTE,
+    )
+    # Garante que existe mapeamento para a forma "Dinheiro" (id_forma=70, origem=1)
+    # já criado pelo _seed_base — a forma de pagamento destino é id_forma=70
+
+    resultado = aplicar_tratamento_divergencias_lote(
+        vendas=[{"tipo_documento": venda.tipo_documento, "id_legado": venda.id_legado}],
+        acao="editar_pagamento",
+        payload={"id_forma": 70},  # mapeia para origem "Dinheiro" — resolve a divergência
+    )
+
+    venda.refresh_from_db()
+    assert resultado["processadas"] == 1
+    assert venda.status_validacao == STG_Venda.STATUS_APROVADO, (
+        "Venda deve ser APROVADA automaticamente apos a edicao resolver a divergencia"
+    )
+    assert venda.status_tratamento == STG_Venda.TRATAMENTO_MANUAL, (
+        "Tratamento deve ser MANUAL pois a edicao foi feita por decisao humana"
+    )
+
+
+@pytest.mark.django_db
+def test_editar_pagamento_sem_resolver_mantem_pendente() -> None:
+    """Editar pagamento de venda que ainda tem divergência financeira deve manter PENDENTE+PENDENTE."""
+    # Cria venda com divergência financeira (totais diferentes) E divergência de formato
+    venda = _seed_venda(
+        id_legado=90201,
+        total_documento="100.000000",
+        total_item="80.000000",   # divergência de totais: 100 != 80
+        total_pagamento="100.000000",
+        pagamento_stg="Cartao",
+        pagamento_auditoria="Dinheiro",
+        status_validacao=STG_Venda.STATUS_PENDENTE,
+        status_tratamento=STG_Venda.TRATAMENTO_PENDENTE,
+    )
+
+    resultado = aplicar_tratamento_divergencias_lote(
+        vendas=[{"tipo_documento": venda.tipo_documento, "id_legado": venda.id_legado}],
+        acao="editar_pagamento",
+        payload={"id_forma": 70},  # resolve o formato, mas a divergência financeira persiste
+    )
+
+    venda.refresh_from_db()
+    assert resultado["processadas"] == 1
+    assert venda.status_validacao == STG_Venda.STATUS_PENDENTE, (
+        "Venda deve permanecer PENDENTE pois ainda ha divergencia financeira"
+    )
+    assert venda.status_tratamento == STG_Venda.TRATAMENTO_PENDENTE, (
+        "Tratamento deve permanecer PENDENTE aguardando nova acao humana"
+    )

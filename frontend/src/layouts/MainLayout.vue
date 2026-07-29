@@ -1,35 +1,88 @@
 <template>
   <div class="min-h-screen bg-white text-[#373435]">
+
+    <!-- ═══════════════════════════ TOPBAR ════════════════════════════════════ -->
+    <header class="fixed top-0 w-full z-50 bg-gray-50 border-b border-gray-200">
+      <div class="h-16 flex items-center justify-between px-4">
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            class="p-2 rounded-md text-gray-500 hover:bg-gray-100 transition-colors"
+            :title="isPinned ? 'Recolher menu lateral' : 'Fixar menu lateral aberto'"
+            @click="isPinned = !isPinned"
+          >
+            <PanelRightOpen v-if="isPinned" class="h-5 w-5" />
+            <PanelRightClose v-else class="h-5 w-5" />
+          </button>
+          <div class="flex items-center gap-2">
+            <span class="text-lg font-semibold tracking-tight text-gray-800">
+              Padaria<span class="text-[#2f6f4f] font-bold">Digital</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Direita: seletor de filial -->
+        <div class="relative" ref="dropdownRef">
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            @click="dropdownOpen = !dropdownOpen"
+          >
+            <Building2 class="h-4 w-4 text-gray-400" />
+            <span class="hidden sm:block font-medium">{{ filialAtiva.nome }}</span>
+            <ChevronDown
+              class="h-3.5 w-3.5 text-gray-400 transition-transform duration-150"
+              :class="dropdownOpen ? 'rotate-180' : ''"
+            />
+          </button>
+
+          <div
+            v-if="dropdownOpen"
+            class="absolute right-0 top-full mt-1.5 w-52 rounded-md border border-gray-200 bg-white shadow-lg overflow-hidden"
+          >
+            <p class="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-gray-100">
+              Selecionar Filial
+            </p>
+            <button
+              v-for="f in FILIAIS"
+              :key="f.id"
+              type="button"
+              class="flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors"
+              :class="f.id === filialAtiva.id ? 'bg-[#373435] text-white' : 'text-gray-700 hover:bg-gray-50'"
+              @click="selectFilial(f)"
+            >
+              <Check v-if="f.id === filialAtiva.id" class="h-3.5 w-3.5 shrink-0" />
+              <span v-else class="h-3.5 w-3.5 shrink-0" />
+              {{ f.nome }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ══════════════════════════ SIDEBAR ════════════════════════════════════ -->
     <aside
-      class="group fixed inset-y-0 left-0 z-30 flex h-screen flex-col border-r border-gray-200 bg-gray-50 px-3 py-4 transition-all duration-300"
+      class="group fixed top-16 left-0 z-40 flex h-[calc(100vh-4rem)] flex-col border-r border-gray-200 bg-gray-50 px-3 py-4 transition-all duration-300"
       :class="isExpanded ? 'w-64' : 'w-16'"
       @mouseenter="isHovered = true"
       @mouseleave="isHovered = false"
     >
-      <div class="relative flex items-start px-1" :class="isExpanded ? 'gap-2' : 'justify-center'">
-        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-[#373435] text-white shadow-sm ring-1 ring-[#373435]/10">
-          <Network class="h-4 w-4" />
-        </div>
-        <div class="overflow-hidden transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">
-          <p class="text-xs uppercase tracking-[0.2em] text-gray-500">Business Flow</p>
-          <h1 class="text-sm font-semibold">Painel Operacional</h1>
-        </div>
-        <button
-          type="button"
-          class="absolute right-1 top-0 rounded-md border border-gray-200 bg-white p-1 text-gray-600 opacity-0 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-gray-100"
-          :class="{ 'opacity-100 pointer-events-auto': isPinned }"
-          :title="isPinned ? 'Desfixar menu lateral' : 'Fixar menu lateral aberto'"
-          @click="isPinned = !isPinned"
-        >
-          <PanelRightOpen v-if="isPinned" class="h-4 w-4" />
-          <PanelRightClose v-else class="h-4 w-4" />
-        </button>
-      </div>
-
       <nav
-        class="mt-5 min-h-0 flex-1 space-y-4"
+        class="min-h-0 flex-1 space-y-4"
         :class="isExpanded ? 'sidebar-scroll overflow-y-auto pr-1' : 'overflow-y-hidden pr-0'"
       >
+        <!-- Início -->
+        <RouterLink
+          to="/"
+          :class="[
+            `flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-all ${isExpanded ? 'justify-start' : 'justify-center'}`,
+            route.path === '/' ? 'bg-[#373435] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-[#4b4948] hover:text-white',
+          ]"
+        >
+          <Home class="h-4 w-4 shrink-0" />
+          <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Início</span>
+        </RouterLink>
+
         <section>
           <button
             v-if="isExpanded"
@@ -43,7 +96,7 @@
           <div class="space-y-1 overflow-hidden transition-all duration-200" :class="sectionVisible('operacoes') ? 'max-h-56 opacity-100' : 'max-h-0 opacity-0'">
             <RouterLink :to="'/validacao/produtos'" :class="linkClass('/validacao/produtos')" class="mt-2">
               <CheckSquare class="h-4 w-4 shrink-0" />
-              <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Hub de Validação</span>
+              <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Integração de Dados</span>
             </RouterLink>
             <RouterLink :to="'/validacao/reconciliacao'" :class="linkClass('/validacao/reconciliacao')" class="mt-1">
               <ArrowRightLeft class="h-4 w-4 shrink-0" />
@@ -160,7 +213,7 @@
       </nav>
     </aside>
 
-    <div class="min-h-screen transition-all duration-300 ease-in-out" :class="isPinned ? 'pl-64' : 'pl-16'">
+    <div class="min-h-screen pt-16 transition-all duration-300 ease-in-out" :class="isPinned ? 'pl-64' : 'pl-16'">
       <main class="min-h-screen p-6">
         <RouterView />
       </main>
@@ -172,11 +225,13 @@
 import {
   ArrowRightLeft,
   Building2,
+  Check,
   ClipboardList,
   ChevronDown,
   CheckSquare,
   CreditCard,
   FolderTree,
+  Home,
   Package,
   PanelRightClose,
   PanelRightOpen,
@@ -187,19 +242,52 @@ import {
   Settings,
   Users,
 } from "lucide-vue-next";
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
+import { FILIAIS } from "@/config/filiais.js";
+import { filialAtiva, setFilial } from "@/stores/filial.js";
 
 const route = useRoute();
+
+// ── Seletor de filial ────────────────────────────────────────────────────────────────
+const dropdownOpen = ref(false);
+const dropdownRef = ref(null);
+
+function selectFilial(f) {
+  dropdownOpen.value = false;
+  if (f.id !== filialAtiva.value.id) {
+    setFilial(f);
+    window.location.reload();
+  }
+}
+
+function handleClickOutside(e) {
+  if (dropdownRef.value && !dropdownRef.value.contains(e.target)) {
+    dropdownOpen.value = false;
+  }
+}
+
+watch(dropdownOpen, (isOpen) => {
+  if (isOpen) {
+    document.addEventListener("click", handleClickOutside, true);
+  } else {
+    document.removeEventListener("click", handleClickOutside, true);
+  }
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleClickOutside, true);
+});
+
 const isPinned = ref(false);
 const isHovered = ref(false);
 const isExpanded = computed(() => isPinned.value || isHovered.value);
 const sectionOpen = ref({
   operacoes: true,
-  cadastros: true,
+  cadastros: false,
   vendas: true,
   compras: true,
-  sistema: true,
+  sistema: false,
 });
 
 function toggleSection(key) {

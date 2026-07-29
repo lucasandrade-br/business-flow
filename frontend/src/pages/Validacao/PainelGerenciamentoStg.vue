@@ -7,89 +7,118 @@
       </button>
     </div>
 
-    <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="rounded-md border border-gray-200 p-3 lg:col-span-2">
-        <p class="text-[11px] text-gray-500">Vendas Validadas (Finalizadas)</p>
-        <div class="mt-1 flex items-baseline justify-between gap-2">
-          <p class="text-sm font-semibold text-[#2f6f4f]">{{ asMoney(kpis.soma_valor_vendas_validadas) }}</p>
-          <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_validadas || 0 }}</p>
+    <!-- KPIs colapsáveis -->
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <button
+        type="button"
+        class="flex w-full items-center justify-between bg-gradient-to-r from-gray-50 to-white px-4 py-2.5 text-left"
+        @click="mostrarKpis = !mostrarKpis"
+      >
+        <div class="flex items-center gap-2">
+          <div class="flex h-5 w-5 items-center justify-center rounded-full bg-[#373435] shadow-sm">
+            <BarChart2 class="h-3 w-3 text-white" />
+          </div>
+          <span class="text-xs font-bold uppercase tracking-wider text-[#373435]">KPIs da Reconciliação</span>
+          <span
+            v-if="Number(kpis.vendas_divergentes || 0) > 0"
+            class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+          >{{ kpis.vendas_divergentes }} pendentes</span>
         </div>
-      </div>
-      <div class="rounded-md border border-gray-200 p-3">
-        <p class="text-[11px] text-gray-500">Negligenciadas</p>
-        <p class="text-sm font-semibold text-[#373435]">{{ kpis.vendas_negligenciadas || 0 }}</p>
-      </div>
-      <div class="rounded-md border border-gray-200 p-3">
-        <p class="text-[11px] text-gray-500">Vendas divergentes</p>
-        <p class="text-lg font-semibold text-[#a82631]">{{ kpis.vendas_divergentes || 0 }}</p>
-      </div>
-    </div>
+        <ChevronDown
+          class="h-4 w-4 text-gray-400 transition-transform duration-200"
+          :class="mostrarKpis ? 'rotate-180' : ''"
+        />
+      </button>
 
-    <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="rounded-md border border-gray-200 p-3">
-        <p class="text-[11px] text-gray-500">Vendas Finalizadas (HOST)</p>
-        <div class="mt-1 flex items-baseline justify-between gap-2">
-          <p class="text-sm font-semibold text-[#373435]">{{ asMoney(kpis.soma_valor_stg) }}</p>
-          <p class="text-[10px] text-gray-400">Canceladas: {{ asMoney(kpis.soma_valor_stg_canceladas) }}</p>
+      <div v-if="mostrarKpis" class="border-t border-gray-200 px-4 py-3 space-y-2">
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="rounded-md border border-gray-200 p-3 lg:col-span-2">
+            <p class="text-[11px] text-gray-500">Vendas Validadas</p>
+            <div class="mt-1 flex items-baseline justify-between gap-2">
+              <p class="text-sm font-semibold text-[#2f6f4f]">{{ asMoney(kpis.soma_valor_vendas_validadas) }}</p>
+              <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_validadas || 0 }}</p>
+            </div>
+          </div>
+          <div class="rounded-md border border-gray-200 p-3">
+            <p class="text-[11px] text-gray-500">Negadas</p>
+            <p class="text-sm font-semibold text-[#373435]">{{ kpis.vendas_negadas || 0 }}</p>
+          </div>
+          <div class="rounded-md border border-gray-200 p-3">
+            <p class="text-[11px] text-gray-500">Pendentes de validação</p>
+            <p class="text-lg font-semibold text-[#a82631]">{{ kpis.vendas_divergentes || 0 }}</p>
+          </div>
         </div>
-      </div>
-      <div class="rounded-md border border-gray-200 p-3">
-        <p class="text-[11px] text-gray-500">Total Auditoria</p>
-        <div class="mt-1 flex items-baseline justify-between gap-2">
-          <p class="text-sm font-semibold text-[#373435]">{{ asMoney(kpis.soma_valor_auditoria) }}</p>
-          <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_auditoria || 0 }}</p>
+
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="rounded-md border border-gray-200 p-3">
+            <p class="text-[11px] text-gray-500">Vendas Finalizadas (HOST)</p>
+            <div class="mt-1 flex items-baseline justify-between gap-2">
+              <p class="text-sm font-semibold text-[#373435]">{{ asMoney(kpis.soma_valor_stg) }}</p>
+              <p class="text-[10px] text-gray-400">Canceladas: {{ asMoney(kpis.soma_valor_stg_canceladas) }}</p>
+            </div>
+          </div>
+          <div class="rounded-md border border-gray-200 p-3">
+            <p class="text-[11px] text-gray-500">Total Auditoria</p>
+            <div class="mt-1 flex items-baseline justify-between gap-2">
+              <p class="text-sm font-semibold text-[#373435]">{{ asMoney(kpis.soma_valor_auditoria) }}</p>
+              <p class="text-[10px] text-gray-500">Qtd: {{ kpis.qtd_vendas_auditoria || 0 }}</p>
+            </div>
+          </div>
+          <div class="rounded-md border border-gray-200 p-3">
+            <p class="text-[11px] text-gray-500">Diferença Validadas x Auditoria</p>
+            <p class="text-sm font-semibold" :class="Number(kpis.diferenca_total || 0) === 0 ? 'text-[#2f6f4f]' : 'text-[#a82631]'">{{ asMoney(kpis.diferenca_total) }}</p>
+          </div>
+          <div class="rounded-md border p-3 transition-colors" :class="periodosDivergem ? 'border-red-300 bg-red-50' : 'border-gray-200'">
+            <p class="text-[11px]" :class="periodosDivergem ? 'text-red-500 font-semibold' : 'text-gray-500'">Período{{ periodosDivergem ? ' — divergente!' : '' }}</p>
+            <div class="mt-1 space-y-0.5">
+              <p class="text-xs font-semibold" :class="periodosDivergem ? 'text-red-700 animate-pulse' : 'text-[#373435]'">Host: {{ periodoHostTexto }}</p>
+              <p class="text-xs font-semibold" :class="periodosDivergem ? 'text-red-700 animate-pulse' : 'text-[#373435]'">Audit: {{ periodoAuditoriaTexto }}</p>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="rounded-md border border-gray-200 p-3">
-        <p class="text-[11px] text-gray-500">Diferenca Validadas x Auditoria</p>
-        <p class="text-sm font-semibold" :class="Number(kpis.diferenca_total || 0) === 0 ? 'text-[#2f6f4f]' : 'text-[#a82631]'">{{ asMoney(kpis.diferenca_total) }}</p>
-      </div>
-      <div class="rounded-md border border-gray-200 p-3">
-        <p class="text-[11px] text-gray-500">Periodo</p>
-        <p class="text-sm font-semibold text-[#373435]">{{ periodoKpiTexto }}</p>
       </div>
     </div>
 
     <!-- Rotina do Dia -->
-    <div class="overflow-hidden rounded-xl border border-indigo-200 bg-white shadow-sm">
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       <button
         type="button"
-        class="flex w-full items-center justify-between bg-gradient-to-r from-indigo-50 to-white px-4 py-2.5 text-left"
+        class="flex w-full items-center justify-between bg-gradient-to-r from-gray-50 to-white px-4 py-2.5 text-left"
         @click="mostrarRotina = !mostrarRotina"
       >
         <div class="flex items-center gap-2">
-          <div class="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 shadow-sm">
+          <div class="flex h-5 w-5 items-center justify-center rounded-full bg-[#373435] shadow-sm">
             <Zap class="h-3 w-3 text-white" />
           </div>
-          <span class="text-xs font-bold uppercase tracking-wider text-indigo-700">Rotina do dia</span>
-          <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">3 passos</span>
+          <span class="text-xs font-bold uppercase tracking-wider text-[#373435]">Rotina do dia</span>
+          <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-[#373435]">5 passos</span>
         </div>
         <ChevronDown
-          class="h-4 w-4 text-indigo-400 transition-transform duration-200"
+          class="h-4 w-4 text-gray-400 transition-transform duration-200"
           :class="mostrarRotina ? 'rotate-180' : ''"
         />
       </button>
 
-      <div v-if="mostrarRotina" class="border-t border-indigo-100 px-4 py-3">
+      <div v-if="mostrarRotina" class="border-t border-gray-200 px-4 py-3">
         <div class="flex items-center gap-2">
           <template v-for="(passo, idx) in PASSOS_ROTINA" :key="idx">
             <button
               type="button"
               class="group relative flex-1 rounded-xl border-2 p-3 text-left transition-all duration-200"
               :class="rotinaPasso === idx
-                ? 'border-indigo-500 bg-gradient-to-br from-indigo-500 to-indigo-700 shadow-lg shadow-indigo-100'
-                : 'border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm'"
+                ? 'border-[#373435] bg-gradient-to-br from-[#373435] to-[#1a1618] shadow-lg shadow-gray-200'
+                : 'border-gray-200 bg-white hover:border-gray-400 hover:shadow-sm'"
               @click="aplicarPassoRotina(idx)"
             >
               <div class="flex flex-col gap-1.5">
                 <div class="flex items-center gap-1.5">
                   <span
                     class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-                    :class="rotinaPasso === idx ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'"
+                    :class="rotinaPasso === idx ? 'bg-white/20 text-white' : 'bg-gray-100 text-[#373435]'"
                   >{{ idx + 1 }}</span>
                   <span
                     class="text-[10px] uppercase tracking-wide"
-                    :class="rotinaPasso === idx ? 'text-indigo-200' : 'text-gray-400'"
+                    :class="rotinaPasso === idx ? 'text-gray-300' : 'text-gray-400'"
                   >{{ passo.categoria }}</span>
                 </div>
                 <p
@@ -101,112 +130,153 @@
             <ChevronRight
               v-if="idx < PASSOS_ROTINA.length - 1"
               class="h-4 w-4 shrink-0"
-              :class="rotinaPasso !== null && rotinaPasso > idx ? 'text-indigo-400' : 'text-gray-200'"
+              :class="rotinaPasso !== null && rotinaPasso > idx ? 'text-[#373435]' : 'text-gray-200'"
             />
           </template>
         </div>
 
-        <div v-if="rotinaPasso !== null" class="mt-3 flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2">
-          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500" />
-          <p class="text-[11px] font-medium text-indigo-700">
-            Passo {{ rotinaPasso + 1 }} ativo —
-            <strong>{{ PASSOS_ROTINA[rotinaPasso].sublabel }}</strong>.
-            Realize as ações necessárias na tabela abaixo.
-          </p>
+        <div v-if="rotinaPasso !== null" class="mt-3 space-y-2">
+          <div class="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 border border-gray-200">
+            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-[#373435]" />
+            <p class="text-[11px] font-medium text-[#373435]">
+              Passo {{ rotinaPasso + 1 }} ativo —
+              <strong>{{ PASSOS_ROTINA[rotinaPasso].sublabel }}</strong>.
+              Realize as ações necessárias na tabela abaixo.
+            </p>
+          </div>
+
+          <div v-if="rotinaPasso < PASSOS_ROTINA.length - 1" class="flex items-center gap-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-md bg-[#373435] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1a1618] disabled:opacity-60"
+              :disabled="macroRunning"
+              @click="executarMacroRotina(rotinaPasso)"
+            >
+              <Loader2 v-if="macroRunning" class="h-3.5 w-3.5 animate-spin" />
+              <Zap v-else class="h-3.5 w-3.5" />
+              {{ macroRunning ? "Executando..." : "Executar macro" }}
+            </button>
+            <span
+              v-if="(rotinaPasso === 0 && !macroFormaTransferenciaId) || (rotinaPasso === 1 && !macroFormaPixId)"
+              class="text-[11px] text-amber-700"
+            >
+              Forma não configurada. Acesse Sistema → Painel para configurar.
+            </span>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="rounded-md border border-gray-200 bg-white p-3 space-y-2">
-      <!-- Linha 1: filtros categóricos -->
-      <div class="flex flex-wrap items-center gap-2">
-        <select v-model="filtroMotivo" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-          <option value="">Todos os motivos</option>
-          <option v-for="item in motivoOptions" :key="item.value" :value="item.value">
-            {{ item.label }}
-          </option>
-        </select>
-        <select v-model="filtroStatusValidacao" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-          <option value="">Todas as validações</option>
-          <option value="PENDENTE">Pendente</option>
-          <option value="DIVERGENTE">Divergente</option>
-          <option value="APROVADO">Aprovado</option>
-        </select>
-
-        <select v-model="filtroTratamento" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-          <option value="">Todos os tratamentos</option>
-          <option value="PENDENTE">Pendente</option>
-          <option value="AJUSTADO">Ajustado</option>
-          <option value="VALIDADO">Validado</option>
-          <option value="NEGLIGENCIADO">Negligenciado</option>
-        </select>
-
-        <select v-model="filtroStatusVenda" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-          <option value="">Todas as vendas</option>
-          <option value="F">Finalizadas</option>
-          <option value="C">Canceladas</option>
-        </select>
-
-        <select v-model="filtroTipoDocumento" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-          <option value="">Todos os tipos</option>
-          <option value="DAV">DAV</option>
-          <option value="NFCE">NFCE</option>
-        </select>
-
-        <select v-model="filtroFormatoPagamentoVenda" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-          <option value="">Todos formatos (venda)</option>
-          <option v-for="forma in opcoesFiltroPagamento.formas_pagamento_venda" :key="forma" :value="forma">
-            {{ forma }}
-          </option>
-        </select>
-
-        <select v-model="filtroFormatoPagamentoAuditoria" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
-          <option value="">Todos formatos (auditoria)</option>
-          <option v-for="forma in opcoesFiltroPagamento.formas_pagamento_auditoria" :key="forma" :value="forma">
-            {{ forma }}
-          </option>
-        </select>
-
-        <input
-          v-model="filtroDataVenda"
-          type="date"
-          class="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+    <!-- Filtros colapsáveis -->
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <button
+        type="button"
+        class="flex w-full items-center justify-between bg-gradient-to-r from-gray-50 to-white px-4 py-2.5 text-left"
+        @click="mostrarFiltros = !mostrarFiltros"
+      >
+        <div class="flex items-center gap-2">
+          <div class="flex h-5 w-5 items-center justify-center rounded-full bg-[#373435] shadow-sm">
+            <Filter class="h-3 w-3 text-white" />
+          </div>
+          <span class="text-xs font-bold uppercase tracking-wider text-[#373435]">Filtros</span>
+          <span v-if="temFiltrosAtivos" class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-[#373435]">Ativos</span>
+        </div>
+        <ChevronDown
+          class="h-4 w-4 text-gray-400 transition-transform duration-200"
+          :class="mostrarFiltros ? 'rotate-180' : ''"
         />
-      </div>
+      </button>
 
-      <!-- Linha 2: lookup (limpa outros filtros ao aplicar) + botões -->
-      <div class="flex flex-wrap items-center gap-2">
-        <input
-          v-model="filtroIdLegado"
-          type="text"
-          placeholder="ID da venda (busca única)"
-          class="rounded-md border border-gray-200 px-2 py-1.5 text-xs w-44"
-          title="Ao filtrar por ID, todos os outros filtros são limpos"
-        />
+      <div v-if="mostrarFiltros" class="border-t border-gray-200 px-4 py-3 space-y-2">
+        <!-- Linha 1: filtros categóricos -->
+        <div class="flex flex-wrap items-center gap-2">
+          <select v-model="filtroMotivo" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos os motivos</option>
+            <option v-for="item in motivoOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
+          </select>
+          <select v-model="filtroStatusValidacao" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todas as validações</option>
+            <option value="PENDENTE">Pendente</option>
+            <option value="NEGADO">Negado</option>
+            <option value="APROVADO">Aprovado</option>
+          </select>
 
-        <input
-          v-model="filtroValorVenda"
-          type="text"
-          placeholder="Valor da venda (busca única)"
-          class="rounded-md border border-gray-200 px-2 py-1.5 text-xs w-44"
-          title="Ao filtrar por valor, todos os outros filtros são limpos"
-        />
+          <select v-model="filtroTratamento" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos os tratamentos</option>
+            <option value="PENDENTE">Pendente</option>
+            <option value="AUTOMATICO">Automático</option>
+            <option value="MANUAL">Manual</option>
+          </select>
 
-        <button
-          type="button"
-          class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-black px-3 py-1.5 text-xs text-white hover:bg-gray-500"
-          @click="aplicarFiltros"
-        >
-          <Filter class="h-3.5 w-3.5" />
-          Filtrar
-        </button>
-        <button
-          type="button"
-          class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-          @click="limparFiltrosERecarregar"
-        >
-          Limpar filtros
-        </button>
+          <select v-model="filtroStatusVenda" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todas as vendas</option>
+            <option value="F">Finalizadas</option>
+            <option value="C">Canceladas</option>
+          </select>
+
+          <select v-model="filtroTipoDocumento" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos os tipos</option>
+            <option value="DAV">DAV</option>
+            <option value="NFCE">NFCE</option>
+          </select>
+
+          <select v-model="filtroFormatoPagamentoVenda" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos formatos (venda)</option>
+            <option v-for="forma in opcoesFiltroPagamento.formas_pagamento_venda" :key="forma" :value="forma">
+              {{ forma }}
+            </option>
+          </select>
+
+          <select v-model="filtroFormatoPagamentoAuditoria" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs">
+            <option value="">Todos formatos (auditoria)</option>
+            <option v-for="forma in opcoesFiltroPagamento.formas_pagamento_auditoria" :key="forma" :value="forma">
+              {{ forma }}
+            </option>
+          </select>
+
+          <input
+            v-model="filtroDataVenda"
+            type="date"
+            class="rounded-md border border-gray-200 px-2 py-1.5 text-xs"
+          />
+        </div>
+
+        <!-- Linha 2: lookup (limpa outros filtros ao aplicar) + botões -->
+        <div class="flex flex-wrap items-center gap-2">
+          <input
+            v-model="filtroIdLegado"
+            type="text"
+            placeholder="ID da venda (busca única)"
+            class="rounded-md border border-gray-200 px-2 py-1.5 text-xs w-44"
+            title="Ao filtrar por ID, todos os outros filtros são limpos"
+          />
+
+          <input
+            v-model="filtroValorVenda"
+            type="text"
+            placeholder="Valor da venda (busca única)"
+            class="rounded-md border border-gray-200 px-2 py-1.5 text-xs w-44"
+            title="Ao filtrar por valor, todos os outros filtros são limpos"
+          />
+
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-black px-3 py-1.5 text-xs text-white hover:bg-gray-500"
+            @click="aplicarFiltros"
+          >
+            <Filter class="h-3.5 w-3.5" />
+            Filtrar
+          </button>
+          <button
+            type="button"
+            class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            @click="limparFiltrosERecarregar"
+          >
+            Limpar filtros
+          </button>
+        </div>
       </div>
     </div>
 
@@ -332,7 +402,7 @@
 
       <template #actions="{ row }">
         <button
-          v-if="row.tipo_documento === 'NFCE' && row.importacao_origem === 'DAV' && row.status_validacao === 'DIVERGENTE'"
+          v-if="row.tipo_documento === 'NFCE' && row.importacao_origem === 'DAV' && row.status_validacao === 'PENDENTE'"
           type="button"
           class="rounded-md bg-purple-100 px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-600 hover:text-white"
           @click.stop="abrirResolucaoDavNfce(row)"
@@ -438,7 +508,7 @@
 
   <BaseModal
     v-model="showConfirmModal"
-    title="Confirmar acao"
+    title="Confirmar ação"
     :description="confirmDescription"
   >
     <template #footer>
@@ -555,7 +625,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-import { ChevronDown, ChevronRight, Filter, Loader2, Zap } from "lucide-vue-next";
+import { BarChart2, ChevronDown, ChevronRight, Filter, Loader2, Zap } from "lucide-vue-next";
 import BaseModal from "@/components/ui/BaseModal.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 import ModalAjusteVendaStg from "@/pages/Validacao/ModalAjusteVendaStg.vue";
@@ -567,7 +637,7 @@ import { useImportSummary } from "./composables/useImportSummary";
 import { useBloqueioModal } from "./composables/useBloqueioModal";
 import { useReconciliacaoFiltros } from "./composables/useReconciliacaoFiltros";
 import { useSelecaoLinhas } from "./composables/useSelecaoLinhas";
-import { motivoOptions, STATUS_TRATAMENTO_NEGLIGENCIADO, STATUS_TRATAMENTO_VALIDADO, MOTIVO_DUPLICADO_SOT, TABLE_COLUMNS } from "@/constants/reconciliacaoVendas";
+import { motivoOptions, STATUS_VALIDACAO_NEGADO, MOTIVO_DUPLICADO_SOT, TABLE_COLUMNS } from "@/constants/reconciliacaoVendas";
 
 const emit = defineEmits(["nova-importacao-confirmada"]);
 
@@ -602,6 +672,7 @@ const {
   filtroStatusVenda,
   filtroIdLegado,
   filtroTipoDocumento,
+  filtroImportacaoOrigem,
   filtroFormatoPagamentoVenda,
   filtroFormatoPagamentoAuditoria,
   filtroValorVenda,
@@ -652,23 +723,56 @@ const resumoPendenciasDisponivel = ref(true);
 
 const tableColumns = TABLE_COLUMNS;
 
+// --- Estado das seções colapsáveis ---
+const mostrarKpis = ref(true);
+const mostrarFiltros = ref(false);
+
 // --- Rotina do dia ---
 const mostrarRotina = ref(true);
 const rotinaPasso = ref(null);
+const macroFormaTransferenciaId = ref(null);
+const macroFormaPixId = ref(null);
+const macroRunning = ref(false);
 const PASSOS_ROTINA = [
   { categoria: "Auditoria", sublabel: "Transferência" },
   { categoria: "Auditoria", sublabel: "PIX" },
   { categoria: "Status venda", sublabel: "Canceladas" },
+  { categoria: "DAV / NFCE", sublabel: "Resolver pares" },
+  { categoria: "Pendentes", sublabel: "Check" },
 ];
 
 // --- Computed ---
-const periodoKpiTexto = computed(() => {
-  const inicial = formatDateBr(kpis.periodo_data_inicial);
-  const final = formatDateBr(kpis.periodo_data_final);
-  if (inicial === "-" && final === "-") return "-";
-  if (inicial === "-") return final;
-  if (final === "-") return inicial;
-  return `${inicial} até ${final}`;
+function formatDateShort(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+  const parts = raw.slice(0, 10).split("-");
+  if (parts.length === 3 && parts[0].length === 4) return `${parts[2]}/${parts[1]}`;
+  return raw.slice(0, 5);
+}
+
+const periodoHostTexto = computed(() => {
+  const ini = formatDateShort(kpis.periodo_data_inicial);
+  const fin = formatDateShort(kpis.periodo_data_final);
+  if (ini === "-" && fin === "-") return "-";
+  if (ini === fin) return ini;
+  return `${ini} - ${fin}`;
+});
+
+const periodoAuditoriaTexto = computed(() => {
+  const ini = formatDateShort(kpis.periodo_auditoria_data_inicial);
+  const fin = formatDateShort(kpis.periodo_auditoria_data_final);
+  if (ini === "-" && fin === "-") return "-";
+  if (ini === fin) return ini;
+  return `${ini} - ${fin}`;
+});
+
+const periodosDivergem = computed(() => {
+  const hostIni = kpis.periodo_data_inicial || "";
+  const hostFin = kpis.periodo_data_final || "";
+  const audIni = kpis.periodo_auditoria_data_inicial || "";
+  const audFin = kpis.periodo_auditoria_data_final || "";
+  if (!hostIni && !audIni) return false;
+  return hostIni !== audIni || hostFin !== audFin;
 });
 
 const hasPendenciasCadastro = computed(
@@ -681,6 +785,7 @@ const hasPendenciasCadastro = computed(
 const consolidacaoBloqueios = computed(() => {
   const motivos = [];
   if (Number(kpis.vendas_aprovadas || 0) <= 0) motivos.push("Nao ha vendas aprovadas para consolidar.");
+  if (Number(kpis.vendas_divergentes || 0) > 0) motivos.push(`Ainda existem ${kpis.vendas_divergentes} venda(s) pendentes de validacao. Trate todas antes de consolidar.`);
   if (!resumoPendenciasDisponivel.value) motivos.push("Nao foi possivel validar pendencias de cadastro no momento.");
   if (hasPendenciasCadastro.value) {
     motivos.push(
@@ -693,6 +798,7 @@ const consolidacaoBloqueios = computed(() => {
 const canConsolidar = computed(
   () =>
     Number(kpis.vendas_aprovadas || 0) > 0 &&
+    Number(kpis.vendas_divergentes || 0) === 0 &&
     resumoPendenciasDisponivel.value &&
     !hasPendenciasCadastro.value,
 );
@@ -705,6 +811,13 @@ const confirmDescription = computed(() => {
   const verbo = confirmAction.value === "validar" ? "validar" : "negligenciar";
   return `Deseja realmente ${verbo} ${selectedRows.value.length} venda(s) selecionada(s)?`;
 });
+
+const temFiltrosAtivos = computed(() =>
+  !!(filtroMotivo.value || filtroStatusValidacao.value || filtroTratamento.value ||
+    filtroStatusVenda.value || filtroTipoDocumento.value || filtroImportacaoOrigem.value ||
+    filtroFormatoPagamentoVenda.value || filtroFormatoPagamentoAuditoria.value ||
+    filtroDataVenda.value || filtroIdLegado.value || filtroValorVenda.value)
+);
 
 // --- Helpers de formatação ---
 function asMoney(value) {
@@ -761,9 +874,9 @@ function motivosDaLinha(row) {
 }
 
 function rowHighlightClass(row) {
-  const tratamento = String(row?.tratamento || "").trim().toUpperCase();
-  if (tratamento === STATUS_TRATAMENTO_VALIDADO) return "bg-[#d7fce1]";
-  if (tratamento === STATUS_TRATAMENTO_NEGLIGENCIADO) return "bg-[#fff5f6]";
+  const statusValidacao = String(row?.status_validacao || "").trim().toUpperCase();
+  if (statusValidacao === "APROVADO") return "bg-[#d7fce1]";
+  if (statusValidacao === STATUS_VALIDACAO_NEGADO) return "bg-[#fff5f6]";
   if (motivosDaLinha(row).includes(MOTIVO_DUPLICADO_SOT)) return "bg-[#fff9db]";
   return "";
 }
@@ -867,6 +980,7 @@ function aplicarFiltros() {
     filtroTratamento.value = "";
     filtroStatusVenda.value = "";
     filtroTipoDocumento.value = "";
+    filtroImportacaoOrigem.value = "";
     filtroFormatoPagamentoVenda.value = "";
     filtroFormatoPagamentoAuditoria.value = "";
     filtroValorVenda.value = "";
@@ -877,6 +991,7 @@ function aplicarFiltros() {
     filtroTratamento.value = "";
     filtroStatusVenda.value = "";
     filtroTipoDocumento.value = "";
+    filtroImportacaoOrigem.value = "";
     filtroFormatoPagamentoVenda.value = "";
     filtroFormatoPagamentoAuditoria.value = "";
     filtroIdLegado.value = "";
@@ -889,10 +1004,11 @@ function aplicarFiltros() {
 function aplicarPassoRotina(index) {
   rotinaPasso.value = index;
   filtroMotivo.value = "";
-  filtroStatusValidacao.value = "DIVERGENTE";
+  filtroStatusValidacao.value = "PENDENTE";
   filtroTratamento.value = "PENDENTE";
   filtroStatusVenda.value = "";
   filtroTipoDocumento.value = "";
+  filtroImportacaoOrigem.value = "";
   filtroFormatoPagamentoVenda.value = "";
   filtroFormatoPagamentoAuditoria.value = "";
   filtroDataVenda.value = "";
@@ -901,11 +1017,72 @@ function aplicarPassoRotina(index) {
   if (index === 0) filtroFormatoPagamentoAuditoria.value = "Transferencia";
   else if (index === 1) filtroFormatoPagamentoAuditoria.value = "PIX";
   else if (index === 2) filtroStatusVenda.value = "C";
+  else if (index === 3) {
+    filtroTipoDocumento.value = "NFCE";
+    filtroImportacaoOrigem.value = "DAV";
+    filtroTratamento.value = "";
+  }
+  mostrarFiltros.value = false;
   reloadDivergencias(true);
 }
 
-async function carregarResumoPendencias() {
+async function carregarConfigMacro() {
   try {
+    const response = await fetch(`${API_BASE_URL}/api/integracao/firebird-config`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return;
+    macroFormaTransferenciaId.value = payload.forma_macro_transferencia_id || null;
+    macroFormaPixId.value = payload.forma_macro_pix_id || null;
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function executarMacroRotina(index) {
+  const ROTINAS = ["transferencia", "pix", "canceladas", "dav_nfce"];
+  const rotina = ROTINAS[index];
+  if (!rotina) return;
+
+  let idForma = null;
+  if (index === 0) {
+    if (!macroFormaTransferenciaId.value) {
+      uploadError.value = "Configure a forma de pagamento para a Rotina Transferência em Sistema → Painel.";
+      return;
+    }
+    idForma = macroFormaTransferenciaId.value;
+  } else if (index === 1) {
+    if (!macroFormaPixId.value) {
+      uploadError.value = "Configure a forma de pagamento para a Rotina PIX em Sistema → Painel.";
+      return;
+    }
+    idForma = macroFormaPixId.value;
+  }
+
+  macroRunning.value = true;
+  try {
+    const body = { rotina };
+    if (idForma !== null) body.id_forma = idForma;
+
+    const response = await fetch(`${API_BASE_URL}/api/validacao/reconciliacao/macro-rotina`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || `Erro ${response.status}`);
+
+    applyKpis(payload.kpis || {});
+    await reloadDivergencias(false);
+    notify(`Macro concluída: ${payload.processadas ?? 0} venda(s) processada(s).`);
+  } catch (err) {
+    console.error(err);
+    uploadError.value = err?.message || "Falha ao executar macro.";
+  } finally {
+    macroRunning.value = false;
+  }
+}
+
+async function carregarResumoPendencias() {  try {
     const response = await fetch(`${API_BASE_URL}/api/validacao/resumo`);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || `Erro ${response.status}`);
@@ -1225,6 +1402,6 @@ async function confirmarNovaImportacao() {
 
 // --- Inicialização ---
 onMounted(async () => {
-  await Promise.all([reloadDivergencias(true), carregarFormasPagamento(), carregarOpcoesFiltro(), carregarResumoPendencias()]);
+  await Promise.all([reloadDivergencias(true), carregarFormasPagamento(), carregarOpcoesFiltro(), carregarResumoPendencias(), carregarConfigMacro()]);
 });
 </script>

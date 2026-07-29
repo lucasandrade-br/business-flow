@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <BaseModal
     v-model="open"
     :title="`Fornecedor ${fornecedor?.id_fornecedor ?? ''}`"
@@ -179,7 +179,8 @@ import { HelpCircle } from "lucide-vue-next";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

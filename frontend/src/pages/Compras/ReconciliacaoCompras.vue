@@ -13,7 +13,7 @@
           <DateRangeField v-model:start="dataInicial" v-model:end="dataFinal" placeholder="Periodo da compra" />
           <button
             type="button"
-            class="inline-flex items-center gap-2 rounded-md bg-[#a82631] px-3 py-2 text-xs font-semibold text-white hover:bg-[#901f29] disabled:cursor-not-allowed disabled:opacity-70"
+            class="inline-flex items-center gap-2 rounded-md bg-[#373435] px-3 py-2 text-xs font-semibold text-white hover:bg-[#2f2e2e] disabled:cursor-not-allowed disabled:opacity-70"
             :disabled="syncing"
             @click="sincronizarCompras"
           >
@@ -129,20 +129,21 @@
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="rounded-md border border-[#03ad12] px-3 py-1.5 text-xs text-[#03ad12] hover:bg-[#d7fce1] disabled:opacity-60"
-            :disabled="!selectedRows.length || applyingBatch"
-            @click="abrirConfirmacaoLote('validar')"
-          >
-            {{ applyingBatch ? "Processando..." : "Validar Selecionadas" }}
-          </button>
-          <button
-            type="button"
-            class="rounded-md border border-[#a82631] px-3 py-1.5 text-xs text-[#a82631] hover:bg-[#fff5f6] disabled:opacity-60"
+            class="rounded-md bg-[#a82631] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#901f29] disabled:opacity-60"
             :disabled="!selectedRows.length || applyingBatch"
             @click="abrirConfirmacaoLote('negligenciar')"
           >
             {{ applyingBatch ? "Processando..." : "Negligenciar Selecionadas" }}
           </button>
+          <button
+            type="button"
+            class="rounded-md bg-[#03ad12] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#029910] disabled:opacity-60"
+            :disabled="!selectedRows.length || applyingBatch"
+            @click="abrirConfirmacaoLote('validar')"
+          >
+            {{ applyingBatch ? "Processando..." : "Validar Selecionadas" }}
+          </button>
+          
         </div>
       </div>
     </article>

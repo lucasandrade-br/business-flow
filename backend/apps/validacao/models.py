@@ -3,12 +3,12 @@ from django.db import models
 
 class BaseSTGModel(models.Model):
 	STATUS_PENDENTE = "PENDENTE"
-	STATUS_DIVERGENTE = "DIVERGENTE"
 	STATUS_APROVADO = "APROVADO"
+	STATUS_NEGADO = "NEGADO"
 	STATUS_VALIDACAO_CHOICES = (
 		(STATUS_PENDENTE, "Pendente"),
-		(STATUS_DIVERGENTE, "Divergente"),
 		(STATUS_APROVADO, "Aprovado"),
+		(STATUS_NEGADO, "Negado"),
 	)
 
 	status_validacao = models.CharField(
@@ -24,14 +24,12 @@ class BaseSTGModel(models.Model):
 
 class STG_Venda(BaseSTGModel):
 	TRATAMENTO_PENDENTE = "PENDENTE"
-	TRATAMENTO_AJUSTADO = "AJUSTADO"
-	TRATAMENTO_VALIDADO = "VALIDADO"
-	TRATAMENTO_NEGLIGENCIADO = "NEGLIGENCIADO"
+	TRATAMENTO_AUTOMATICO = "AUTOMATICO"
+	TRATAMENTO_MANUAL = "MANUAL"
 	STATUS_TRATAMENTO_CHOICES = (
 		(TRATAMENTO_PENDENTE, "Pendente"),
-		(TRATAMENTO_AJUSTADO, "Ajustado"),
-		(TRATAMENTO_VALIDADO, "Validado"),
-		(TRATAMENTO_NEGLIGENCIADO, "Negligenciado"),
+		(TRATAMENTO_AUTOMATICO, "Automatico"),
+		(TRATAMENTO_MANUAL, "Manual"),
 	)
 
 	TIPO_NFCE = "NFCE"
@@ -64,7 +62,6 @@ class STG_Venda(BaseSTGModel):
 		default=TRATAMENTO_PENDENTE,
 		db_index=True,
 	)
-	validacao_override = models.BooleanField(default=False)
 	snapshot_divergencia = models.JSONField(default=dict, blank=True)
 	tratamento_atualizado_em = models.DateTimeField(null=True, blank=True)
 	importacao_id = models.BigIntegerField(null=True, blank=True, db_index=True)

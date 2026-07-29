@@ -107,7 +107,8 @@ import { computed, ref, watch } from "vue";
 import { Filter } from "lucide-vue-next";
 import BaseModal from "@/components/ui/BaseModal.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

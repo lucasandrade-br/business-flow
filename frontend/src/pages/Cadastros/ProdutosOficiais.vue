@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section>
     <BaseTable
       title="Produtos Oficiais"
@@ -235,7 +235,8 @@ import PercentInput from "@/components/ui/PercentInput.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 import ExportModal from "@/components/ui/ExportModal.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 const endpoint = `${API_BASE_URL}/api/cadastros/produtos`;
 
 const columns = [

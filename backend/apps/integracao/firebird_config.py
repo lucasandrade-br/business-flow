@@ -58,6 +58,8 @@ def serialize_firebird_connection_config(config: FirebirdConnectionConfig) -> di
         "caminho_fixo": caminho_fixo,
         "caminho_efetivo": caminho_efetivo,
         "usa_fallback_env": bool(not caminho_fixo and caminho_efetivo),
+        "forma_macro_transferencia_id": config.forma_macro_transferencia_id,
+        "forma_macro_pix_id": config.forma_macro_pix_id,
     }
 
 

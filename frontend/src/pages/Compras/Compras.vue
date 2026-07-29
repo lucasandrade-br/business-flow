@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section>
     <BaseTable
       title="Compras"
@@ -132,7 +132,8 @@ import ExportModal from "@/components/ui/ExportModal.vue";
 import RemoteSearchSelect from "@/components/ui/RemoteSearchSelect.vue";
 import CompraDetailsModal from "@/components/compras/CompraDetailsModal.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 const endpoint = `${API_BASE_URL}/api/compras/compras`;
 
 const columns = [

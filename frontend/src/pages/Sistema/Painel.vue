@@ -63,6 +63,60 @@
         <p><strong>Caminho efetivo:</strong> {{ caminhoEfetivo || "Nao definido" }}</p>
       </div>
     </article>
+
+    <article class="rounded-md border border-gray-200 bg-white p-4 space-y-4">
+      <div>
+        <h3 class="text-sm font-semibold text-[#373435]">Rotinas Automáticas (Macros)</h3>
+        <p class="mt-1 text-xs text-gray-500">
+          Defina as formas de pagamento usadas pelos botões de macro na tela de Reconciliação.
+          A Rotina 1 (Transferência) e a Rotina 2 (PIX) aplicam o formato escolhido em todas as vendas pendentes correspondentes.
+        </p>
+      </div>
+
+      <div class="rounded-md border border-gray-200 bg-gray-50 p-3 space-y-3">
+        <div class="space-y-1.5">
+          <label class="text-xs font-semibold text-gray-700">Forma de pagamento — Rotina 1 (Transferência)</label>
+          <select
+            v-model="formaTransferenciaId"
+            class="w-full rounded-md border border-gray-200 bg-white px-2 py-2 text-xs"
+            :disabled="loadingFormas || loading || saving"
+          >
+            <option value="">Não configurado</option>
+            <option v-for="fp in formasPagamento" :key="fp.id_forma" :value="String(fp.id_forma)">
+              {{ fp.descricao }}
+            </option>
+          </select>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs font-semibold text-gray-700">Forma de pagamento — Rotina 2 (PIX)</label>
+          <select
+            v-model="formaPixId"
+            class="w-full rounded-md border border-gray-200 bg-white px-2 py-2 text-xs"
+            :disabled="loadingFormas || loading || saving"
+          >
+            <option value="">Não configurado</option>
+            <option v-for="fp in formasPagamento" :key="fp.id_forma" :value="String(fp.id_forma)">
+              {{ fp.descricao }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="rounded-md bg-[#1f4f8a] px-3 py-2 text-xs font-semibold text-white hover:bg-[#193f6e] disabled:opacity-60"
+          :disabled="loading || saving"
+          @click="salvarConfiguracao"
+        >
+          {{ saving ? "Salvando..." : "Salvar configuracao" }}
+        </button>
+      </div>
+
+      <p v-if="mensagemSucesso" class="text-xs text-green-700">{{ mensagemSucesso }}</p>
+      <p v-if="mensagemErro" class="text-xs text-red-600">{{ mensagemErro }}</p>
+    </article>
   </section>
 </template>
 
@@ -80,6 +134,12 @@ const caminhoEfetivo = ref("");
 const mensagemErro = ref("");
 const mensagemSucesso = ref("");
 
+// Macros
+const formasPagamento = ref([]);
+const loadingFormas = ref(false);
+const formaTransferenciaId = ref("");
+const formaPixId = ref("");
+
 function limparMensagens() {
   mensagemErro.value = "";
   mensagemSucesso.value = "";
@@ -90,6 +150,23 @@ function aplicarPayload(payload) {
   modoDinamico.value = modo === "DYNAMIC";
   caminhoFixo.value = String(payload?.caminho_fixo || "");
   caminhoEfetivo.value = String(payload?.caminho_efetivo || "");
+  formaTransferenciaId.value = payload?.forma_macro_transferencia_id ? String(payload.forma_macro_transferencia_id) : "";
+  formaPixId.value = payload?.forma_macro_pix_id ? String(payload.forma_macro_pix_id) : "";
+}
+
+async function carregarFormasPagamento() {
+  loadingFormas.value = true;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/validacao/reconciliacao/formas-pagamento`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || `Erro ${response.status}`);
+    formasPagamento.value = payload.rows || [];
+  } catch (error) {
+    console.error(error);
+    formasPagamento.value = [];
+  } finally {
+    loadingFormas.value = false;
+  }
 }
 
 async function carregarConfiguracao() {
@@ -123,6 +200,8 @@ async function salvarConfiguracao() {
       body: JSON.stringify({
         modo_localizacao: modoDinamico.value ? "DYNAMIC" : "FIXED",
         caminho_fixo: caminhoFixo.value,
+        forma_macro_transferencia_id: formaTransferenciaId.value ? Number(formaTransferenciaId.value) : null,
+        forma_macro_pix_id: formaPixId.value ? Number(formaPixId.value) : null,
       }),
     });
 
@@ -143,5 +222,6 @@ async function salvarConfiguracao() {
 
 onMounted(() => {
   carregarConfiguracao();
+  carregarFormasPagamento();
 });
 </script>

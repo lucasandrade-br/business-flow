@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import MainLayout from "@/layouts/MainLayout.vue";
+import HomeView from "@/pages/HomeView.vue";
 import ValidacaoPendentes from "@/pages/Validacao/Pendentes.vue";
 import DashboardReconciliacao from "@/pages/Validacao/DashboardReconciliacao.vue";
 import Clientes from "@/pages/Cadastros/Clientes.vue";
@@ -22,7 +23,8 @@ const routes = [
     children: [
       {
         path: "",
-        redirect: "/validacao/produtos",
+        name: "home",
+        component: HomeView,
       },
       {
         path: "validacao/produtos",

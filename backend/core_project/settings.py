@@ -12,13 +12,24 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import logging.handlers
+import os
 
-from decouple import config
+from decouple import Config, RepositoryEnv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── Seleção de filial ────────────────────────────────────────────────────────
+# Defina BUSINESS_FILIAL antes de iniciar o Django (ex.: "centro", "henriques").
+# O arquivo .env.<filial> será carregado. Se não existir, usa .env como fallback.
+_filial_slug = os.environ.get("BUSINESS_FILIAL", "").strip()
+_env_file = BASE_DIR / (f".env.{_filial_slug}" if _filial_slug else ".env")
+if not _env_file.exists():
+    _env_file = BASE_DIR / ".env"
+
+config = Config(RepositoryEnv(str(_env_file)))
 
 
 # Quick-start development settings - unsuitable for production

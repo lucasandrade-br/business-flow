@@ -17,6 +17,7 @@ from apps.validacao.services.auditoria_planilha import (
     aplicar_tratamento_divergencia,
     aplicar_tratamento_divergencias_lote,
     consolidar_stg_para_sot,
+    executar_macro_rotina,
     get_importacao_job,
     limpar_fluxo_reconciliacao,
     listar_divergencias_reconciliacao,
@@ -54,4 +55,5 @@ __all__ = [
     "listar_opcoes_filtro_pagamento",
     "obter_par_nfce_dav",
     "resolver_par_nfce_dav",
+    "executar_macro_rotina",
 ]

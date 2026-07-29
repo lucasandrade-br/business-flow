@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section>
     <BaseTable
       title="Plano de Contas"
@@ -118,7 +118,8 @@ import ModalGerenciarVinculos from "@/components/ui/ModalGerenciarVinculos.vue";
 import ModalLotePlanoContas from "@/components/ui/ModalLotePlanoContas.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 const endpoint = `${API_BASE_URL}/api/cadastros/plano-contas`;
 
 const columns = [

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="space-y-4">
     <header>
       <h2 class="text-sm font-semibold text-[#373435]">Parâmetros</h2>
@@ -132,7 +132,8 @@ import ModalGerenciarMapeamentosForma from "@/components/ui/ModalGerenciarMapeam
 import ModalGerenciarOrigensForma from "@/components/ui/ModalGerenciarOrigensForma.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+import { getApiBaseUrl } from "@/services/firebirdSync"
+const API_BASE_URL = getApiBaseUrl();
 
 const tabs = [
   {

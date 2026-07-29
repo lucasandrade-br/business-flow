@@ -82,7 +82,7 @@ def test_consolidacao_mapeia_cliente_padrao_e_persiste_campos_novos() -> None:
         nome_usuario_legado=usuario.nome,
         valor_final=Decimal("100.000000"),
         status_validacao=STG_Venda.STATUS_APROVADO,
-        status_tratamento=STG_Venda.TRATAMENTO_VALIDADO,
+        status_tratamento=STG_Venda.TRATAMENTO_MANUAL,
     )
 
     STG_ItemVenda.objects.create(
@@ -179,7 +179,7 @@ def test_consolidacao_bloqueia_cliente_legado_zero_sem_cliente_padrao() -> None:
         nome_usuario_legado=usuario.nome,
         valor_final=Decimal("50.000000"),
         status_validacao=STG_Venda.STATUS_APROVADO,
-        status_tratamento=STG_Venda.TRATAMENTO_VALIDADO,
+        status_tratamento=STG_Venda.TRATAMENTO_MANUAL,
     )
 
     STG_ItemVenda.objects.create(
@@ -278,7 +278,7 @@ def test_consolidacao_permite_produto_com_nome_semelhante() -> None:
         nome_usuario_legado=usuario.nome,
         valor_final=Decimal("25.000000"),
         status_validacao=STG_Venda.STATUS_APROVADO,
-        status_tratamento=STG_Venda.TRATAMENTO_VALIDADO,
+        status_tratamento=STG_Venda.TRATAMENTO_MANUAL,
     )
 
     STG_ItemVenda.objects.create(
@@ -365,7 +365,7 @@ def test_consolidacao_permite_cliente_com_nome_semelhante() -> None:
         nome_usuario_legado=usuario.nome,
         valor_final=Decimal("40.000000"),
         status_validacao=STG_Venda.STATUS_APROVADO,
-        status_tratamento=STG_Venda.TRATAMENTO_VALIDADO,
+        status_tratamento=STG_Venda.TRATAMENTO_MANUAL,
     )
 
     STG_ItemVenda.objects.create(
