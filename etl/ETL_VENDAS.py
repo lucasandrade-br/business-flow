@@ -17,6 +17,8 @@ COLUNAS_VENDAS = [
     "id_cliente",
     "id_usuario",
     "valor_total_documento",
+    "nfce_status",
+    "nfce_numero",
 ]
 
 COLUNAS_ITENS = [
@@ -202,6 +204,8 @@ def build_template(caminho_saida: Path) -> None:
                 "id_cliente": 1,
                 "id_usuario": 1,
                 "valor_total_documento": 199.90,
+                "nfce_status": "100",
+                "nfce_numero": "000001",
             },
             {
                 "id_legado": 20001,
@@ -212,6 +216,8 @@ def build_template(caminho_saida: Path) -> None:
                 "id_cliente": "",
                 "id_usuario": 1,
                 "valor_total_documento": 89.50,
+                "nfce_status": "",
+                "nfce_numero": "",
             },
         ]
     )
@@ -335,6 +341,8 @@ def importar_vendas(caminho_arquivo: Path) -> None:
                     ids_cliente.add(id_cliente)
                 ids_usuario.add(id_usuario)
 
+                nfce_status = to_str(row["nfce_status"])[:40]
+                nfce_numero = to_str(row["nfce_numero"])[:40]
                 vendas_registros.append(
                     (
                         id_legado,
@@ -345,6 +353,8 @@ def importar_vendas(caminho_arquivo: Path) -> None:
                         id_cliente,
                         id_usuario,
                         to_decimal(row["valor_total_documento"], "vendas.valor_total_documento"),
+                        nfce_status,
+                        nfce_numero,
                     )
                 )
 
@@ -354,15 +364,18 @@ def importar_vendas(caminho_arquivo: Path) -> None:
             sql_upsert_venda = """
                 INSERT INTO venda (
                     id_legado, tipo_documento, data_venda, hora_venda,
-                    status, id_cliente, id_usuario, valor_total_documento, momento_consolidacao
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                    status, id_cliente, id_usuario, valor_total_documento, momento_consolidacao,
+                    nfce_status, nfce_numero
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     data_venda = VALUES(data_venda),
                     hora_venda = VALUES(hora_venda),
                     status = VALUES(status),
                     id_cliente = VALUES(id_cliente),
                     id_usuario = VALUES(id_usuario),
-                    valor_total_documento = VALUES(valor_total_documento)
+                    valor_total_documento = VALUES(valor_total_documento),
+                    nfce_status = VALUES(nfce_status),
+                    nfce_numero = VALUES(nfce_numero)
             """
             cursor.executemany(sql_upsert_venda, vendas_registros)
 

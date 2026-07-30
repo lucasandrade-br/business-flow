@@ -9,10 +9,10 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "Business Flow",
-        short_name: "Business Flow",
-        theme_color: "#ffffff",
-        background_color: "#ffffff",
+        name: "Delícias do Trigo",
+        short_name: "Delícias do Trigo",
+        theme_color: "#f9fafb",
+        background_color: "#f9fafb",
         display: "standalone",
         start_url: "/",
         icons: [

@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 :: ── Lê PWA_SHORTCUT_PATH do .env ────────────────────────────────────────────
-set "PWA_SHORTCUT_PATH="
+set "PWA_SHORTCUT_PATH=C:\Users\emanu\Documents\Outros\Business Flow.lnk"
 if exist ".env" (
     for /f "usebackq eol=# tokens=1* delims==" %%A in (".env") do (
         if /i "%%~A"=="PWA_SHORTCUT_PATH" set "PWA_SHORTCUT_PATH=%%~B"
@@ -33,22 +33,36 @@ call ".venv\Scripts\activate.bat"
 
 :: ── Migrações por filial ─────────────────────────────────────────────────────
 echo.
-echo [1/4] Migrando banco Filial Centro...
+echo [1/5] Migrando banco Filial Centro...
 set BUSINESS_FILIAL=centro
 pushd backend
 python manage.py migrate
 if errorlevel 1 ( popd & echo Falha na migracao - Centro. & pause & exit /b 1 )
 popd
 
-echo [2/4] Migrando banco Filial Henrique...
+echo [2/5] Migrando banco Filial Henrique...
 set BUSINESS_FILIAL=henriques
 pushd backend
 python manage.py migrate
 if errorlevel 1 ( popd & echo Falha na migracao - Henriques. & pause & exit /b 1 )
 popd
 
+echo [3/5] Atualizando KPIs do dashboard...
+set BUSINESS_FILIAL=centro
+pushd backend
+python manage.py refresh_dashboard_kpis 2>nul
+python manage.py refresh_dashboard_kpis_compras 2>nul
+python manage.py refresh_dre_consolidada 2>nul
+popd
+set BUSINESS_FILIAL=henriques
+pushd backend
+python manage.py refresh_dashboard_kpis 2>nul
+python manage.py refresh_dashboard_kpis_compras 2>nul
+python manage.py refresh_dre_consolidada 2>nul
+popd
+
 :: ── Build do frontend ─────────────────────────────────────────────────────────
-echo [3/4] Gerando build de producao do frontend...
+echo [4/5] Gerando build de producao do frontend...
 pushd frontend
 call npm run build
 if errorlevel 1 ( popd & echo Falha ao gerar build do frontend. & pause & exit /b 1 )
@@ -58,7 +72,7 @@ popd
 if not exist "logs" mkdir logs
 
 :: ── Inicia serviços em background (nesta janela, sem abrir novas) ────────────
-echo [4/4] Iniciando servicos...
+echo [5/5] Iniciando servicos...
 
 :: Gera scripts auxiliares no %TEMP% (sem espacos no caminho = sem conflito de aspas)
 set BUSINESS_FILIAL=centro

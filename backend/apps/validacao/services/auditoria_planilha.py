@@ -2587,6 +2587,12 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
         STG_Venda.objects.all().delete()
         STG_AuditoriaPlanilha.objects.all().delete()
 
+    try:
+        from apps.analise.services import processar_kpis_dashboard
+        processar_kpis_dashboard()
+    except Exception:
+        pass  # KPI refresh é não-bloqueante
+
     return {
         "vendas_inseridas": inseridas,
         "vendas_ignoradas_duplicadas": ignoradas_duplicadas,

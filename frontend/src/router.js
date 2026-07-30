@@ -27,6 +27,35 @@ const routes = [
         component: HomeView,
       },
       {
+        path: "dashboard",
+        redirect: "/analise/visao-geral",
+      },
+      {
+        path: "analise",
+        component: () => import("@/layouts/AnaliseLayout.vue"),
+        children: [
+          { path: "", redirect: "/analise/visao-geral" },
+          {
+            path: "visao-geral",
+            name: "analise-visao-geral",
+            component: () => import("@/pages/analise/DreView.vue"),
+            meta: { title: "Visão Geral" },
+          },
+          {
+            path: "vendas",
+            name: "analise-vendas",
+            component: () => import("@/pages/analise/VendasView.vue"),
+            meta: { title: "Vendas" },
+          },
+          {
+            path: "compras",
+            name: "analise-compras",
+            component: () => import("@/pages/analise/ComprasView.vue"),
+            meta: { title: "Compras" },
+          },
+        ],
+      },
+      {
         path: "validacao/produtos",
         name: "validacao-produtos",
         component: ValidacaoPendentes,

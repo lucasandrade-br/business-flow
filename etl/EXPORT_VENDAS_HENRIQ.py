@@ -64,6 +64,8 @@ def processar_dados() -> None:
     )
     df_vendas['id_usuario'] = df_vendas_base['ID_USUARIO']
     df_vendas['valor_total_documento'] = df_vendas_base['VALOR_VEND']
+    df_vendas['nfce_status'] = df_vendas_base['NFCE_STATU'].fillna('').astype(str).str.strip()
+    df_vendas['nfce_numero'] = df_vendas_base['ID_VENDA_C'].fillna('').astype(str).str.strip()
 
     # =================================================================
     # 3. TRANSFORMAÇÃO: ABA 'itens_venda'

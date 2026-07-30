@@ -83,6 +83,18 @@
           <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Início</span>
         </RouterLink>
 
+        <!-- Análises -->
+        <RouterLink
+          to="/analise"
+          :class="[
+            `flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-all ${isExpanded ? 'justify-start' : 'justify-center'}`,
+            route.path.startsWith('/analise') ? 'bg-[#373435] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-[#4b4948] hover:text-white',
+          ]"
+        >
+          <BarChart2 class="h-4 w-4 shrink-0" />
+          <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Análises</span>
+        </RouterLink>
+
         <section>
           <button
             v-if="isExpanded"
@@ -224,6 +236,7 @@
 <script setup>
 import {
   ArrowRightLeft,
+  BarChart2,
   Building2,
   Check,
   ClipboardList,
@@ -246,6 +259,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { FILIAIS } from "@/config/filiais.js";
 import { filialAtiva, setFilial } from "@/stores/filial.js";
+import { mainSidebarPinned } from "@/stores/mainSidebar.js";
 
 const route = useRoute();
 
@@ -279,7 +293,7 @@ onBeforeUnmount(() => {
   document.removeEventListener("click", handleClickOutside, true);
 });
 
-const isPinned = ref(false);
+const isPinned = mainSidebarPinned;
 const isHovered = ref(false);
 const isExpanded = computed(() => isPinned.value || isHovered.value);
 const sectionOpen = ref({

@@ -6,7 +6,7 @@ from pathlib import Path
 # 1. PARÂMETROS DE CONFIGURAÇÃO
 # =====================================================================
 CAMINHO_ACCESS = r"C:\Users\emanu\Documents\Trabalho\Padaria\Dados Padrões\AC_HOST_DEL_2026.accdb"
-DIRETORIO_SAIDA = Path(r"C:\Users\emanu\Documents\Desenvolvimento\Business Flow\etl_testes\exports") 
+DIRETORIO_SAIDA = Path(r"C:\Users\emanu\Documents\Desenvolvimento\padaria\Business Flow\etl_testes\exports") 
 PREFIXO_ARQUIVO = "DADOS_TRANSFORMADOS_VENDAS_CENTRO"
 
 # Regras de Negócio
@@ -75,6 +75,8 @@ def processar_dados() -> None:
     
     # Atribui o novo valor agregado à coluna exigida pelo modelo
     df_vendas['valor_total_documento'] = df_vendas_base['VALOR_TOTAL_CALCULADO']
+    df_vendas['nfce_status'] = df_vendas_base['NFCE_STATU'].fillna('').astype(str).str.strip()
+    df_vendas['nfce_numero'] = df_vendas_base['NFCE_NUMER'].fillna('').astype(str).str.strip()
 
     # =================================================================
     # 3. TRANSFORMAÇÃO: ABA 'itens_venda'
