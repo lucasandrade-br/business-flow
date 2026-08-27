@@ -48,6 +48,12 @@ const routes = [
             meta: { title: "Vendas" },
           },
           {
+            path: "movimento-clientes",
+            name: "analise-movimento-clientes",
+            component: () => import("@/pages/analise/MovimentoClientesView.vue"),
+            meta: { title: "Movimento de Clientes" },
+          },
+          {
             path: "compras",
             name: "analise-compras",
             component: () => import("@/pages/analise/ComprasView.vue"),

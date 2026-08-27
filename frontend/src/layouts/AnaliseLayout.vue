@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { BarChart2, ChevronDown, ChevronRight, ShoppingCart, TrendingUp } from 'lucide-vue-next'
+import { BarChart2, CalendarDays, ChevronDown, ChevronRight, ShoppingCart, TrendingUp } from 'lucide-vue-next'
 import { mainSidebarPinned } from '@/stores/mainSidebar.js'
 
 onMounted(() => { mainSidebarPinned.value = false })
 
 const route = useRoute()
-const sectionOpen = ref({ visaoGeral: true, vendas: false, compras: false })
+const sectionOpen = ref({ visaoGeral: true, vendas: true, compras: true })
 
 function toggleSection(key) {
   sectionOpen.value[key] = !sectionOpen.value[key]
@@ -87,6 +87,10 @@ function linkClass(to) {
           <RouterLink to="/analise/vendas" :class="linkClass('/analise/vendas')">
             <TrendingUp class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Análise de Vendas</span>
+          </RouterLink>
+          <RouterLink to="/analise/movimento-clientes" :class="linkClass('/analise/movimento-clientes')">
+            <CalendarDays class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Movimento Clientes</span>
           </RouterLink>
         </div>
       </section>

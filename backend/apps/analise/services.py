@@ -5,9 +5,15 @@ from datetime import date
 from django.db.models import Sum, Count
 from django.db.models.functions import TruncMonth
 
+from apps.cadastros.models import TipoVenda
 from apps.compras.models import Compra, ItemCompra
 from apps.vendas.models import Venda
-from apps.analise.models import DashboardKpiVenda, DashboardKpiCompra, DreMensalConsolidada
+from apps.analise.models import (
+    DashboardKpiVenda,
+    DashboardKpiCompra,
+    DreMensalConsolidada,
+    MovimentoDiario,
+)
 
 _MESES_LABELS = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 _STATUS_CANCELADO = "C"
@@ -265,5 +271,35 @@ def atualizar_dre_consolidada() -> None:
             defaults={
                 "total_receita": vals["receita"],
                 "total_custo":   vals["custo"],
+            },
+        )
+
+
+def atualizar_movimento_diario() -> None:
+    """Reconsolida o movimento por data e tipo de venda. Full refresh idempotente."""
+    nomes_tipo = dict(TipoVenda.objects.values_list("id_tipo_venda", "descricao"))
+
+    agregado = (
+        Venda.objects
+        .exclude(status=_STATUS_CANCELADO)
+        .values("data_venda", "cliente__id_tipo_venda")
+        .annotate(qtd=Count("id_venda"), valor=Sum("valor_total_documento"))
+    )
+
+    for row in agregado:
+        tipo_id = row["cliente__id_tipo_venda"]
+        if tipo_id is None:
+            tipo_id = MovimentoDiario.SEM_TIPO_ID
+            tipo_nome = MovimentoDiario.SEM_TIPO_NOME
+        else:
+            tipo_nome = nomes_tipo.get(tipo_id, f"Tipo {tipo_id}")
+
+        MovimentoDiario.objects.update_or_create(
+            data=row["data_venda"],
+            tipo_venda_id=tipo_id,
+            defaults={
+                "tipo_venda_nome": tipo_nome,
+                "qtd_vendas": row["qtd"] or 0,
+                "valor_total": row["valor"] or Decimal("0"),
             },
         )

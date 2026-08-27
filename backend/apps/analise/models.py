@@ -60,3 +60,23 @@ class DreMensalConsolidada(models.Model):
 
     def __str__(self) -> str:
         return f"DRE {self.ano}/{self.mes:02d}"
+
+
+class MovimentoDiario(models.Model):
+    SEM_TIPO_ID = 0
+    SEM_TIPO_NOME = "Sem Tipo / Balcão"
+
+    data = models.DateField(db_index=True)
+    # Sentinela 0 em vez de FK nulável: unique_together com NULL não barra duplicidade.
+    tipo_venda_id = models.IntegerField(db_index=True)
+    tipo_venda_nome = models.CharField(max_length=80)
+    qtd_vendas = models.IntegerField(default=0)
+    valor_total = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "movimento_diario"
+        unique_together = ("data", "tipo_venda_id")
+
+    def __str__(self) -> str:
+        return f"{self.data} — {self.tipo_venda_nome}: {self.qtd_vendas}"
