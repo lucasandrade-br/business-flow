@@ -23,6 +23,8 @@ class UnidadeMedida(models.Model):
 class PlanoConta(models.Model):
 	id_conta = models.AutoField(primary_key=True, db_column="id_conta")
 	codigo_hierarquico = models.CharField(max_length=30)
+	# Versao com segmentos zero-padded de codigo_hierarquico, para ordenacao numerica no banco.
+	codigo_ordenacao = models.CharField(max_length=60, blank=True, default="", db_index=True)
 	nome_conta = models.CharField(max_length=120)
 	conta_pai = models.ForeignKey(
 		"self",
@@ -30,6 +32,7 @@ class PlanoConta(models.Model):
 		blank=True,
 		db_column="id_conta_pai",
 		db_constraint=False,
+		db_index=True,
 		on_delete=models.SET_NULL,
 		related_name="filhas",
 	)
@@ -90,11 +93,21 @@ class PlanoConta(models.Model):
 		next_index = (max(indexes) if indexes else 0) + 1
 		return f"{parent_code}{next_index}."
 
+	@staticmethod
+	def build_codigo_ordenacao(codigo: str) -> str:
+		segmentos = [parte for parte in str(codigo or "").split(".") if parte != ""]
+		if not segmentos:
+			return ""
+		normalizados = [parte.zfill(6) if parte.isdigit() else parte for parte in segmentos]
+		return ".".join(normalizados) + "."
+
 	def save(self, *args, **kwargs):
 		if not self.codigo_hierarquico:
 			with transaction.atomic():
 				self.codigo_hierarquico = self._build_next_code()
+				self.codigo_ordenacao = self.build_codigo_ordenacao(self.codigo_hierarquico)
 				return super().save(*args, **kwargs)
+		self.codigo_ordenacao = self.build_codigo_ordenacao(self.codigo_hierarquico)
 		return super().save(*args, **kwargs)
 
 	@property

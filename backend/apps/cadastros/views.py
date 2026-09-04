@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import pandas as pd
 from django.db import connection, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework import filters, generics, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -23,16 +24,48 @@ from .serializers import (
 	FormaPagamentoMapeamentoSerializer,
 	GrupoClienteSerializer,
 	PlanoContaLoteSerializer,
+	PlanoContaOpcaoSerializer,
+	PlanoContaRaizSerializer,
 	PlanoContaSerializer,
 	PlanoContaVincularProdutosSerializer,
-	PlanoContaTreeSerializer,
 	FornecedorSerializer,
 	ProdutoSerializer,
 	TemplateExportacaoSerializer,
 	TipoVendaSerializer,
 	UnidadeMedidaSerializer,
 )
-from .services import EXPORT_CONTENT_TYPES, export_dataframe, export_queryset_data, validate_safe_select_sql
+from .services import (
+	EXPORT_CONTENT_TYPES,
+	export_dataframe,
+	export_queryset_data,
+	validar_categorias_folha,
+	validate_safe_select_sql,
+)
+
+
+BOOL_TRUE = {"1", "true", "on", "sim", "yes"}
+
+
+def _prefixo_subarvore(conta_id_raw, *, apenas_raiz: bool = False) -> str | None:
+	"""Prefixo indexado de codigo_ordenacao que cobre a conta e toda a sua descendencia."""
+	try:
+		conta_id = int(conta_id_raw)
+	except (TypeError, ValueError):
+		return None
+
+	queryset = PlanoConta.objects.filter(id_conta=conta_id)
+	if apenas_raiz:
+		queryset = queryset.filter(conta_pai__isnull=True)
+
+	return queryset.values_list("codigo_ordenacao", flat=True).first() or None
+
+
+def _subarvore_queryset(queryset, raiz_id_raw):
+	prefixo = _prefixo_subarvore(raiz_id_raw, apenas_raiz=True)
+	if not prefixo:
+		return queryset.none()
+
+	return queryset.filter(codigo_ordenacao__startswith=prefixo)
 
 
 class UnidadeMedidaListCreateAPIView(generics.ListCreateAPIView):
@@ -49,7 +82,7 @@ class UnidadeMedidaDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class PlanoContaListCreateAPIView(generics.ListCreateAPIView):
-	queryset = PlanoConta.objects.select_related("conta_pai").all().order_by("codigo_hierarquico")
+	queryset = PlanoConta.objects.select_related("conta_pai").all().order_by("codigo_ordenacao")
 	serializer_class = PlanoContaSerializer
 	filter_backends = [filters.SearchFilter]
 	search_fields = ["nome_conta", "codigo_hierarquico"]
@@ -60,32 +93,11 @@ class PlanoContaListCreateAPIView(generics.ListCreateAPIView):
 		if not raiz_id_raw:
 			return queryset
 
-		try:
-			raiz_id = int(raiz_id_raw)
-		except (TypeError, ValueError):
-			return queryset.none()
-
-		raiz = queryset.filter(id_conta=raiz_id, conta_pai__isnull=True).first()
-		if raiz is None:
-			return queryset.none()
-
-		ids = {raiz.id_conta}
-		fronteira = [raiz.id_conta]
-		while fronteira:
-			filhas = list(
-				PlanoConta.objects.filter(conta_pai_id__in=fronteira).values_list("id_conta", flat=True)
-			)
-			novas = [item_id for item_id in filhas if item_id not in ids]
-			if not novas:
-				break
-			ids.update(novas)
-			fronteira = novas
-
-		return queryset.filter(id_conta__in=ids)
+		return _subarvore_queryset(queryset, raiz_id_raw)
 
 
 class PlanoContaViewSet(viewsets.ModelViewSet):
-	queryset = PlanoConta.objects.select_related("conta_pai").all().order_by("codigo_hierarquico")
+	queryset = PlanoConta.objects.select_related("conta_pai").all().order_by("codigo_ordenacao")
 	serializer_class = PlanoContaSerializer
 	lookup_field = "id_conta"
 	filter_backends = [filters.SearchFilter]
@@ -126,6 +138,7 @@ class PlanoContaViewSet(viewsets.ModelViewSet):
 	@action(detail=True, methods=["post"], url_path="vincular-produtos")
 	def vincular_produtos(self, request, id_conta=None):
 		categoria = self.get_object()
+		validar_categorias_folha([categoria.id_conta])
 		payload = PlanoContaVincularProdutosSerializer(data=request.data)
 		payload.is_valid(raise_exception=True)
 		adicionar_ids = payload.validated_data.get("adicionar_ids", [])
@@ -138,6 +151,25 @@ class PlanoContaViewSet(viewsets.ModelViewSet):
 		remover_ids = [item for item in remover_ids if item in ids_existentes]
 
 		if adicionar_ids:
+			prefixo_raiz = f"{categoria.codigo_ordenacao.split('.')[0]}."
+			conflitos = list(
+				Produto.objects.filter(
+					id_produto__in=adicionar_ids,
+					categorias__codigo_ordenacao__startswith=prefixo_raiz,
+				)
+				.exclude(categorias=categoria)
+				.values("id_produto", "produto")
+				.distinct()
+				.order_by("id_produto")
+			)
+			if conflitos:
+				return Response(
+					{
+						"detail": "Um produto pode estar vinculado a apenas uma categoria folha por familia.",
+						"produtos_conflitantes": conflitos,
+					},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
 			categoria.produtos_vinculados.add(*adicionar_ids)
 		if remover_ids:
 			categoria.produtos_vinculados.remove(*remover_ids)
@@ -159,15 +191,81 @@ class PlanoContaDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
 	lookup_field = "id_conta"
 
 
-class PlanoContaArvoreAPIView(generics.ListAPIView):
+class PlanoContaArvoreAPIView(APIView):
+	def get(self, request):
+		nodes = list(
+			PlanoConta.objects.order_by("codigo_ordenacao").values(
+				"id_conta", "codigo_hierarquico", "nome_conta", "conta_pai_id"
+			)
+		)
+
+		por_id = {}
+		filhos_por_pai: dict[int | None, list[dict]] = {}
+		for node in nodes:
+			item = {
+				"id_conta": node["id_conta"],
+				"codigo_hierarquico": node["codigo_hierarquico"],
+				"nome_conta": node["nome_conta"],
+				"conta_pai": node["conta_pai_id"],
+				"filhas": [],
+			}
+			por_id[node["id_conta"]] = item
+			filhos_por_pai.setdefault(node["conta_pai_id"], []).append(item)
+
+		for pai_id, filhos in filhos_por_pai.items():
+			if pai_id is not None and pai_id in por_id:
+				por_id[pai_id]["filhas"] = filhos
+
+		raizes = [item for item in filhos_por_pai.get(None, [])]
+		return Response(raizes, status=status.HTTP_200_OK)
+
+
+class PlanoContaRaizesAPIView(generics.ListAPIView):
 	queryset = (
-		PlanoConta.objects.select_related("conta_pai")
-		.prefetch_related("filhas")
-		.filter(conta_pai__isnull=True)
-		.order_by("codigo_hierarquico")
+		PlanoConta.objects.filter(conta_pai__isnull=True)
+		.only("id_conta", "codigo_hierarquico", "nome_conta")
+		.order_by("codigo_ordenacao")
 	)
-	serializer_class = PlanoContaTreeSerializer
+	serializer_class = PlanoContaRaizSerializer
 	pagination_class = None
+
+
+class PlanoContaOpcoesAPIView(generics.ListAPIView):
+	serializer_class = PlanoContaOpcaoSerializer
+	pagination_class = LimitOffsetPagination
+
+	def get_queryset(self):
+		params = self.request.query_params
+		queryset = PlanoConta.objects.only("id_conta", "codigo_hierarquico", "nome_conta").order_by("codigo_ordenacao")
+
+		# Hidratacao de rotulos ja selecionados ignora os demais filtros para nao ocultar vinculos existentes.
+		ids_raw = (params.get("ids") or "").strip()
+		if ids_raw:
+			ids = []
+			for parte in ids_raw.split(","):
+				parte = parte.strip()
+				if not parte:
+					continue
+				try:
+					ids.append(int(parte))
+				except (TypeError, ValueError):
+					return queryset.none()
+			return queryset.filter(id_conta__in=ids)
+
+		raiz_id_raw = (params.get("raiz_id") or "").strip()
+		if raiz_id_raw:
+			queryset = _subarvore_queryset(queryset, raiz_id_raw).exclude(id_conta=raiz_id_raw)
+
+		if str(params.get("somente_folhas") or "").strip().lower() in BOOL_TRUE:
+			queryset = queryset.exclude(Exists(PlanoConta.objects.filter(conta_pai_id=OuterRef("pk"))))
+
+		search = (params.get("search") or "").strip()
+		if search:
+			queryset = queryset.filter(
+				Q(nome_conta__icontains=search) | Q(codigo_hierarquico__startswith=search)
+			)
+
+		return queryset
 
 
 class ProdutoListCreateAPIView(generics.ListCreateAPIView):
@@ -180,11 +278,11 @@ class ProdutoListCreateAPIView(generics.ListCreateAPIView):
 		queryset = super().get_queryset()
 		categoria_id = (self.request.query_params.get("categoria_id") or "").strip()
 		if categoria_id:
-			try:
-				categoria_id_int = int(categoria_id)
-			except (TypeError, ValueError):
+			# Inclui a categoria selecionada e toda a sua descendencia.
+			prefixo = _prefixo_subarvore(categoria_id)
+			if not prefixo:
 				return queryset.none()
-			queryset = queryset.filter(categorias__id_conta=categoria_id_int)
+			queryset = queryset.filter(categorias__codigo_ordenacao__startswith=prefixo)
 		return queryset.distinct()
 
 
@@ -465,6 +563,16 @@ class ExportacaoUniversalAPIView(APIView):
 			queryset = queryset.distinct()
 		return queryset
 
+	def _apply_produto_filters(self, queryset, filtros: dict):
+		categoria_id = str(filtros.get("categoria_id") or "").strip()
+		if not categoria_id:
+			return queryset
+
+		prefixo = _prefixo_subarvore(categoria_id)
+		if not prefixo:
+			return queryset.none()
+		return queryset.filter(categorias__codigo_ordenacao__startswith=prefixo).distinct()
+
 	def _apply_item_filters(self, queryset, filtros: dict):
 		queryset = self._apply_date_range_filter(queryset, field_name="venda__data_venda", filtros=filtros)
 		tipo_documento = str(filtros.get("tipo_documento") or "").strip().upper()
@@ -542,7 +650,7 @@ class ExportacaoUniversalAPIView(APIView):
 			"queryset": Produto.objects.select_related("id_und_medida").prefetch_related("categorias").all(),
 			"search_fields": ["produto", "nome_gerencial"],
 			"allowed_columns": {field.name for field in Produto._meta.fields},
-			"filter_fn": lambda self, queryset, filtros: queryset,
+			"filter_fn": lambda self, queryset, filtros: self._apply_produto_filters(queryset, filtros),
 		},
 		"clientes": {
 			"queryset": Cliente.objects.select_related("id_grupo", "id_tipo_venda").all(),

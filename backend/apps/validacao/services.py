@@ -197,16 +197,7 @@ def aprovar_produto_novo(dados_validados: dict[str, Any]) -> None:
             )
 
             categoria_ids = set(dados_validados.get("categorias_ids", []))
-            categorias = []
-            for categoria_id in sorted(categoria_ids):
-                categoria, _ = PlanoConta.objects.get_or_create(
-                    id_conta=categoria_id,
-                    defaults={
-                        "codigo_hierarquico": str(categoria_id),
-                        "nome_conta": f"Categoria {categoria_id}",
-                    },
-                )
-                categorias.append(categoria)
+            categorias = list(PlanoConta.objects.filter(id_conta__in=categoria_ids))
 
             produto, _ = Produto.objects.update_or_create(
                 id_produto=dados_validados["id_produto"],

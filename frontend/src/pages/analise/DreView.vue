@@ -2,6 +2,15 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { BarChart2 } from 'lucide-vue-next'
 import { getApiBaseUrl } from '@/services/firebirdSync'
+import {
+  estiloCelulaFinanceira,
+  formatarValor,
+  indicesIgnoradosMesAberto,
+  mapaQuartis,
+  mesEstaAberto,
+  numeroFinanceiro,
+  tooltipMesAberto,
+} from './analiseMensalUtils'
 
 const API_BASE_URL = getApiBaseUrl()
 
@@ -9,6 +18,7 @@ const API_BASE_URL = getApiBaseUrl()
 const anosDisponiveis = ref([])
 const anoSelecionado  = ref(null)
 const visao           = ref('anual')  // 'anual' | 'mensal'
+const periodoEquivalente = ref(true)
 const dados           = ref(null)
 const loading         = ref(true)
 const semDados        = ref(false)
@@ -37,7 +47,11 @@ async function carregarDre(ano) {
   semDados.value = false
   dados.value = null
   try {
-    const res = await fetch(`${API_BASE_URL}/api/analise/dashboard/dre/?ano=${ano}`)
+    const params = new URLSearchParams({
+      ano: String(ano),
+      periodo_equivalente: periodoEquivalente.value ? '1' : '0',
+    })
+    const res = await fetch(`${API_BASE_URL}/api/analise/dashboard/dre/?${params}`)
     if (res.status === 404) { semDados.value = true; return }
     if (!res.ok) return
     dados.value = await res.json()
@@ -47,7 +61,7 @@ async function carregarDre(ano) {
 }
 
 onMounted(carregarAnos)
-watch(anoSelecionado, (ano) => { if (ano) carregarDre(ano) })
+watch([anoSelecionado, periodoEquivalente], ([ano]) => { if (ano) carregarDre(ano) })
 
 // ── Formatadores ──────────────────────────────────────────────────────────────
 const fmtR = (v) =>
@@ -67,6 +81,12 @@ const fmtX = (v) =>
   v === null || v === undefined ? '—' : `${Number(v).toFixed(2)}x`
 
 const sgn = (v) => Number(v) >= 0 ? '+' : ''
+
+const fmtDataCurta = (v) => {
+  if (!v) return ''
+  const [, mes, dia] = v.split('-')
+  return `${dia}/${mes}`
+}
 
 // ── Anos ──────────────────────────────────────────────────────────────────────
 const anoAtual    = computed(() => anoSelecionado.value ?? '')
@@ -151,15 +171,25 @@ const mensal = computed(() => {
   const tMg  = tRec - tCst
   const tMgP = tRec > 0 ? (tMg / tRec) * 100 : null
   const tFat = tCst > 0 ? tRec / tCst         : null
+  const indicesIgnorados = indicesIgnoradosMesAberto(dados.value)
 
   return [
-    { label: 'Receita Total',    bold: false, destaque: false, meses: rec,      total: tRec,  fmt: fmtR,              fmtT: fmtR },
-    { label: 'Custo Total',      bold: false, destaque: false, meses: cst,      total: tCst,  fmt: fmtR,              fmtT: fmtR },
-    { label: 'Margem Bruta',     bold: true,  destaque: true,  meses: mgMeses,  total: tMg,   fmt: fmtR,              fmtT: fmtR },
-    { label: 'Margem %',         bold: false, destaque: false, meses: mgpMeses, total: tMgP,  fmt: (v) => fmtP(v, 1), fmtT: (v) => fmtP(v, 1) },
-    { label: 'Fator de Retorno', bold: false, destaque: false, meses: fatMeses, total: tFat,  fmt: fmtX,              fmtT: fmtX },
+    { label: 'Receita Total',    tipo: 'normal', bold: false, destaque: false, meses: rec,      total: tRec,  fmt: formatarValor,     fmtT: formatarValor, ranking: mapaQuartis(rec, indicesIgnorados) },
+    { label: 'Custo Total',      tipo: 'custo',  bold: false, destaque: false, meses: cst,      total: tCst,  fmt: formatarValor,     fmtT: formatarValor, ranking: mapaQuartis(cst, indicesIgnorados) },
+    { label: 'Margem Bruta',     tipo: 'normal', bold: true,  destaque: true,  meses: mgMeses,  total: tMg,   fmt: formatarValor,     fmtT: formatarValor, ranking: mapaQuartis(mgMeses, indicesIgnorados) },
+    { label: 'Margem %',         tipo: 'normal', bold: false, destaque: false, meses: mgpMeses, total: tMgP,  fmt: (v) => fmtP(v, 1), fmtT: (v) => fmtP(v, 1), ranking: mapaQuartis(mgpMeses, indicesIgnorados) },
+    { label: 'Fator de Retorno', tipo: 'normal', bold: false, destaque: false, meses: fatMeses, total: tFat,  fmt: fmtX,              fmtT: fmtX, ranking: mapaQuartis(fatMeses, indicesIgnorados) },
   ]
 })
+
+function estiloMensal(row, valor, indice) {
+  return estiloCelulaFinanceira(
+    row.ranking,
+    valor,
+    row.tipo === 'custo',
+    mesEstaAberto(dados.value, indice),
+  )
+}
 </script>
 
 <template>
@@ -214,7 +244,16 @@ const mensal = computed(() => {
               :class="visao === 'mensal' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
             >Evolução Mensal</button>
           </div>
+
+          <label v-if="visao === 'anual'" class="flex cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-gray-600">
+            <input v-model="periodoEquivalente" type="checkbox" class="h-3.5 w-3.5 rounded border-gray-300 accent-[#373435]" />
+            Períodos equivalentes
+          </label>
         </div>
+      </div>
+
+      <div v-if="visao === 'anual' && dados?.periodo_equivalente" class="border-b border-gray-100 bg-gray-50/60 px-4 py-2 text-right text-[10px] text-gray-500">
+        Comparação de 01/01 a {{ fmtDataCurta(dados.data_corte_atual) }} em ambos os anos
       </div>
 
       <!-- Loading skeleton -->
@@ -223,7 +262,7 @@ const mensal = computed(() => {
       </div>
 
       <!-- Tabela: Comparativo Anual -->
-      <div v-else-if="visao === 'anual' && dados" class="overflow-x-auto">
+      <div v-else-if="visao === 'anual' && dados" class="app-scrollbar overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-gray-100">
@@ -264,17 +303,19 @@ const mensal = computed(() => {
       </div>
 
       <!-- Tabela: Evolução Mensal -->
-      <div v-else-if="visao === 'mensal' && mensal" class="overflow-x-auto">
+      <div v-else-if="visao === 'mensal' && mensal" class="app-scrollbar overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-gray-100">
-              <th class="sticky left-0 z-10 bg-white px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 w-36 shadow-[1px_0_0_#f3f4f6]">Métrica</th>
+              <th class="sticky left-0 z-10 bg-white px-11 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 w-36 shadow-[1px_0_0_#f3f4f6]">Métrica</th>
               <th
-                v-for="m in MESES"
+                v-for="(m, indice) in MESES"
                 :key="m"
-                class="px-2 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 min-w-[72px]"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-400 min-w-[72px]"
+                :title="tooltipMesAberto(dados, indice)"
+                :aria-label="tooltipMesAberto(dados, indice) || m"
               >{{ m }}</th>
-              <th class="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-500 min-w-[96px]">Total</th>
+              <th class="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500 min-w-[96px]">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -293,7 +334,8 @@ const mensal = computed(() => {
                 v-for="(v, i) in row.meses"
                 :key="i"
                 class="px-2 py-2 text-right font-mono text-xs tabular-nums"
-                :class="v !== null ? 'text-gray-700' : 'text-gray-300'"
+                :class="numeroFinanceiro(v) !== null ? 'text-gray-700' : 'text-gray-300'"
+                :style="estiloMensal(row, v, i)"
               >{{ row.fmt(v) }}</td>
               <td
                 class="px-4 py-2 text-right font-mono text-xs tabular-nums"

@@ -5,14 +5,17 @@ from datetime import date
 from difflib import SequenceMatcher
 from decimal import Decimal, InvalidOperation
 from typing import Any
+import logging
 import unicodedata
 
 from django.db import transaction
-from django.db.models import Max, Min, Sum
+from django.db.models import Max, Min, Prefetch, Sum
 from django.utils import timezone
 
 from apps.cadastros.models import Fornecedor, Produto, UnidadeMedida
 from apps.compras.models import Compra, ItemCompra, STG_Compra, STG_ItemCompra
+
+logger = logging.getLogger(__name__)
 DECIMAL_TOLERANCIA_TOTAL = Decimal("0.5")
 LIMIAR_SEMELHANCA_FORNECEDOR = 0.8
 LIMIAR_SEMELHANCA_PRODUTO = 0.8
@@ -722,7 +725,16 @@ def obter_queryset_divergencias_reconciliacao_compras(
     if motivo_norm:
         compras = compras.filter(snapshot_divergencia__motivos__contains=[motivo_norm])
 
-    return compras.prefetch_related("itens", "fornecedor_resolvido").order_by("data_emissao", "id_compra_legado")
+    return (
+        compras.select_related("fornecedor_resolvido")
+        .prefetch_related(
+            Prefetch(
+                "itens",
+                queryset=STG_ItemCompra.objects.select_related("produto_resolvido", "unidade_resolvida"),
+            )
+        )
+        .order_by("data_emissao", "id_compra_legado")
+    )
 
 
 def serializar_divergencia_reconciliacao_compra(compra: STG_Compra) -> dict[str, Any]:
@@ -774,7 +786,21 @@ def serializar_divergencia_reconciliacao_compra(compra: STG_Compra) -> dict[str,
                     else Decimal("0")
                 ),
                 "produto_resolvido_id": item.produto_resolvido_id,
+                "produto_resolvido": {
+                    "id_produto": int(item.produto_resolvido.id_produto),
+                    "produto": item.produto_resolvido.produto,
+                    "nome_gerencial": item.produto_resolvido.nome_gerencial,
+                }
+                if item.produto_resolvido is not None
+                else None,
                 "unidade_resolvida_id": item.unidade_resolvida_id,
+                "unidade_resolvida": {
+                    "id_und_medida": int(item.unidade_resolvida.id_und_medida),
+                    "sigla": item.unidade_resolvida.sigla,
+                    "descricao": item.unidade_resolvida.descricao,
+                }
+                if item.unidade_resolvida is not None
+                else None,
             }
             for item in compra.itens.all()
         ],
@@ -1217,6 +1243,10 @@ def consolidar_compras_stg_para_sot() -> dict[str, Any]:
 
     inseridas = 0
     momento_consolidacao = timezone.now()
+    periodos_afetados = {
+        (pacote["compra"].data_emissao.year, pacote["compra"].data_emissao.month)
+        for pacote in preparadas
+    }
 
     with transaction.atomic():
         for pacote in preparadas:
@@ -1258,6 +1288,20 @@ def consolidar_compras_stg_para_sot() -> dict[str, Any]:
         stg_itens_removidos = STG_ItemCompra.objects.count()
         STG_ItemCompra.objects.all().delete()
         STG_Compra.objects.all().delete()
+
+    # O SOT já está confirmado. Uma falha analítica não desfaz a consolidação:
+    # o serviço preserva o snapshot anterior e marca o período como FALHA.
+    from apps.analise.services import reconstruir_movimento_compra_produto_mensal
+
+    for ano_periodo, mes_periodo in sorted(periodos_afetados):
+        try:
+            reconstruir_movimento_compra_produto_mensal(ano_periodo, mes_periodo)
+        except Exception:
+            logger.exception(
+                "Compra consolidada, mas o agregado analítico falhou para %s/%02d.",
+                ano_periodo,
+                mes_periodo,
+            )
 
     return {
         "compras_inseridas": inseridas,

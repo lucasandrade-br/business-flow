@@ -8,12 +8,19 @@
     <div class="space-y-4">
       <label class="space-y-1 text-xs">
         <span class="font-medium text-gray-600">Categoria</span>
-        <select v-model="selectedCategoriaId" class="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
-          <option value="">Selecione uma categoria</option>
-          <option v-for="option in categoriasOptions" :key="option.value" :value="String(option.value)">
-            {{ option.label }}
-          </option>
-        </select>
+        <RemoteSearchSelect
+          v-model="selectedCategoriaId"
+          :endpoint="opcoesEndpoint"
+          value-field="id_conta"
+          label-field="label"
+          resolve-param="ids"
+          :extra-params="{ somente_folhas: 1 }"
+          all-label="Selecione uma categoria"
+          search-placeholder="Buscar por codigo ou nome"
+          :limit="30"
+          button-class="inline-flex w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          dropdown-class="absolute z-30 mt-1 w-full min-w-[18rem] rounded-md border border-gray-200 bg-white p-2 shadow-lg"
+        />
       </label>
 
       <label class="space-y-1 text-xs">
@@ -106,13 +113,14 @@
 import { computed, ref, watch } from "vue";
 import { Filter } from "lucide-vue-next";
 import BaseModal from "@/components/ui/BaseModal.vue";
+import RemoteSearchSelect from "@/components/ui/RemoteSearchSelect.vue";
 
 import { getApiBaseUrl } from "@/services/firebirdSync"
 const API_BASE_URL = getApiBaseUrl();
+const opcoesEndpoint = `${API_BASE_URL}/api/cadastros/plano-contas/opcoes`;
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
-  categoriasOptions: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   error: { type: String, default: "" },
 });

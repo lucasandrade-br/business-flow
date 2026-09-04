@@ -25,7 +25,7 @@
             <option v-for="root in rootsOptions" :key="root.value" :value="String(root.value)">
               {{ root.label }}
             </option>
-          </select>
+          </select>          
           <div class="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5">
             <Search class="h-4 w-4 text-gray-400" />
             <input
@@ -77,20 +77,55 @@
       </template>
     </BaseTable>
 
-    <BaseFormModal
+    <BaseModal
       v-model="showModal"
       :title="editing ? 'Editar Conta' : 'Nova Conta'"
-      :fields="formFields"
-      :initial-values="initialValues"
-      :saving="saving"
-      :error="modalError"
-      submit-label="Salvar"
-      @submit="save"
-    />
+      description="Ajuste o nome e a conta pai."
+    >
+      <div class="space-y-3">
+        <label class="space-y-1 text-xs">
+          <span class="font-medium text-gray-600">Nome da Conta</span>
+          <input v-model="formNomeConta" type="text" class="w-full rounded-md border border-gray-200 px-3 py-2 text-sm" />
+        </label>
+        <label class="space-y-1 text-xs">
+          <span class="font-medium text-gray-600">Conta Pai</span>
+          <RemoteSearchSelect
+            v-model="formContaPai"
+            :endpoint="opcoesEndpoint"
+            value-field="id_conta"
+            label-field="label"
+            resolve-param="ids"
+            all-label="Sem pai (raiz)"
+            search-placeholder="Buscar por codigo ou nome"
+            :limit="30"
+            button-class="inline-flex w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            dropdown-class="absolute z-30 mt-1 w-full min-w-[18rem] rounded-md border border-gray-200 bg-white p-2 shadow-lg"
+          />
+        </label>
+        <p v-if="modalError" class="text-xs text-red-600">{{ modalError }}</p>
+      </div>
+
+      <template #footer>
+        <button
+          type="button"
+          class="rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+          @click="showModal = false"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          class="rounded-md bg-black px-3 py-2 text-xs font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="saving"
+          @click="save({ nome_conta: formNomeConta, conta_pai: formContaPai })"
+        >
+          {{ saving ? 'Salvando...' : 'Salvar' }}
+        </button>
+      </template>
+    </BaseModal>
 
     <ModalLotePlanoContas
       v-model="showLoteModal"
-      :parent-options="parentOptions"
       :loading="savingLote"
       :error="loteError"
       @submit="saveLote"
@@ -98,7 +133,6 @@
 
     <ModalGerenciarVinculos
       v-model="showVinculosModal"
-      :categorias-options="categoriaOptions"
       :loading="savingVinculos"
       :error="vinculosError"
       @submit="aplicarVinculos"
@@ -111,16 +145,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { Link, Pencil, Plus, Search, Trash2 } from "lucide-vue-next";
-import BaseFormModal from "@/components/ui/BaseFormModal.vue";
+import BaseModal from "@/components/ui/BaseModal.vue";
 import ModalGerenciarVinculos from "@/components/ui/ModalGerenciarVinculos.vue";
 import ModalLotePlanoContas from "@/components/ui/ModalLotePlanoContas.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
+import RemoteSearchSelect from "@/components/ui/RemoteSearchSelect.vue";
 
+import { extractApiError } from "@/services/apiErrors";
 import { getApiBaseUrl } from "@/services/firebirdSync"
 const API_BASE_URL = getApiBaseUrl();
 const endpoint = `${API_BASE_URL}/api/cadastros/plano-contas`;
+const opcoesEndpoint = `${endpoint}/opcoes`;
 
 const columns = [
   { key: "codigo_hierarquico", label: "Codigo" },
@@ -138,11 +175,12 @@ const previous = ref("");
 const search = ref("");
 const selectedRaiz = ref("");
 const rootsOptions = ref([]);
-const categoriaOptions = ref([]);
 
 const showModal = ref(false);
 const saving = ref(false);
 const modalError = ref("");
+const formNomeConta = ref("");
+const formContaPai = ref("");
 const showLoteModal = ref(false);
 const savingLote = ref(false);
 const loteError = ref("");
@@ -152,29 +190,6 @@ const vinculosError = ref("");
 const toastMessage = ref("");
 let toastTimer;
 const editing = ref(null);
-const parentOptions = ref([]);
-
-const formFields = computed(() => [
-  { name: "nome_conta", label: "Nome da Conta", type: "text" },
-  {
-    name: "conta_pai",
-    label: "Conta Pai",
-    type: "select",
-    emptyValue: "",
-    placeholder: "Sem pai (raiz)",
-    options: parentOptions.value,
-  },
-]);
-
-const initialValues = computed(() => {
-  if (!editing.value) {
-    return { nome_conta: "", conta_pai: "" };
-  }
-  return {
-    nome_conta: editing.value.nome_conta || "",
-    conta_pai: editing.value.conta_pai || "",
-  };
-});
 
 function withSearch(raw = endpoint) {
   const url = new URL(raw);
@@ -206,50 +221,19 @@ async function load(url = endpoint) {
   }
 }
 
-async function loadParentOptions() {
-  try {
-    const response = await fetch(endpoint);
-    if (!response.ok) throw new Error(`Erro ${response.status}`);
-    const data = await response.json();
-    parentOptions.value = (data.results || []).map((item) => ({
-      value: item.id_conta,
-      label: `${item.codigo_hierarquico || '-'} ${item.nome_conta}`,
-    }));
-  } catch (err) {
-    console.error(err);
-    parentOptions.value = [];
-  }
-}
-
 async function loadRootsOptions() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/cadastros/plano-contas/arvore`);
+    const response = await fetch(`${endpoint}/raizes`);
     if (!response.ok) throw new Error(`Erro ${response.status}`);
     const data = await response.json();
-
-    const tree = Array.isArray(data) ? data : [];
-    rootsOptions.value = tree.map((item) => ({
+    const items = Array.isArray(data) ? data : data.results || [];
+    rootsOptions.value = items.map((item) => ({
       value: item.id_conta,
       label: `${item.codigo_hierarquico} ${item.nome_conta}`,
     }));
-
-    const flattened = [];
-    const walk = (nodes, depth) => {
-      for (const node of nodes || []) {
-        const prefix = depth > 0 ? `${"  ".repeat(depth)}- ` : "";
-        flattened.push({
-          value: node.id_conta,
-          label: `${prefix}${node.codigo_hierarquico} ${node.nome_conta}`,
-        });
-        walk(node.filhas, depth + 1);
-      }
-    };
-    walk(tree, 0);
-    categoriaOptions.value = flattened;
   } catch (err) {
     console.error(err);
     rootsOptions.value = [];
-    categoriaOptions.value = [];
   }
 }
 
@@ -275,14 +259,14 @@ async function reload() {
 
 async function openCreate() {
   loteError.value = "";
-  await loadParentOptions();
   showLoteModal.value = true;
 }
 
 async function openEdit(row) {
   editing.value = row;
   modalError.value = "";
-  await loadParentOptions();
+  formNomeConta.value = row.nome_conta || "";
+  formContaPai.value = row.conta_pai || "";
   showModal.value = true;
 }
 
@@ -309,7 +293,7 @@ async function save(values) {
     await reload();
   } catch (err) {
     console.error(err);
-    modalError.value = "Falha ao salvar conta.";
+    modalError.value = extractApiError(err, "Falha ao salvar conta.");
   } finally {
     saving.value = false;
   }
@@ -342,10 +326,10 @@ async function saveLote(payload) {
     }
 
     showLoteModal.value = false;
-    await Promise.all([reload(), loadParentOptions(), loadRootsOptions()]);
+    await Promise.all([reload(), loadRootsOptions()]);
   } catch (err) {
     console.error(err);
-    loteError.value = "Falha ao salvar lote de contas.";
+    loteError.value = extractApiError(err, "Falha ao salvar lote de contas.");
   } finally {
     savingLote.value = false;
   }
@@ -353,9 +337,6 @@ async function saveLote(payload) {
 
 async function openVinculos() {
   vinculosError.value = "";
-  if (!categoriaOptions.value.length) {
-    await loadRootsOptions();
-  }
   showVinculosModal.value = true;
 }
 
@@ -377,7 +358,7 @@ async function aplicarVinculos({ categoria_id, adicionar_ids, remover_ids }) {
     notify("Vinculos aplicados com sucesso.");
   } catch (err) {
     console.error(err);
-    vinculosError.value = "Falha ao aplicar vinculos.";
+    vinculosError.value = extractApiError(err, "Falha ao aplicar vinculos.");
   } finally {
     savingVinculos.value = false;
   }

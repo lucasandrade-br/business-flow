@@ -259,7 +259,7 @@ function estiloCelula(row, v) {
       </div>
 
       <template v-else-if="dados">
-        <!-- ════════ Matriz semanal ════════ -->
+        <!-- ════════ Matriz Anual ════════ -->
         <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div class="flex items-center justify-between rounded-t-xl bg-gradient-to-r from-gray-50 to-white px-4 py-2.5 border-b border-gray-100">
             <div class="flex items-center gap-2">

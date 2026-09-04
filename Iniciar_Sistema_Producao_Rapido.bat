@@ -31,54 +31,6 @@ if not exist "frontend\package.json" (
 
 call ".venv\Scripts\activate.bat"
 
-:: ── Migrações por filial ─────────────────────────────────────────────────────
-echo.
-echo [1/5] Migrando banco Filial Centro...
-set BUSINESS_FILIAL=centro
-pushd backend
-python manage.py migrate
-if errorlevel 1 ( popd & echo Falha na migracao - Centro. & pause & exit /b 1 )
-popd
-
-echo [2/5] Migrando banco Filial Henrique...
-set BUSINESS_FILIAL=henriques
-pushd backend
-python manage.py migrate
-if errorlevel 1 ( popd & echo Falha na migracao - Henriques. & pause & exit /b 1 )
-popd
-
-echo [3/5] Atualizando KPIs do dashboard...
-echo Henrique de Centro...
-set BUSINESS_FILIAL=centro
-pushd backend
-python manage.py refresh_dashboard_kpis 2>nul
-python manage.py refresh_dashboard_kpis_compras 2>nul
-python manage.py refresh_dre_consolidada 2>nul
-python manage.py refresh_movimento_diario 2>nul
-python manage.py rebuild_movimento_produto_mensal 2>nul
-python manage.py rebuild_movimento_compra_produto_mensal 2>nul
-popd
-echo Henrique de Holanda...
-set BUSINESS_FILIAL=henriques
-pushd backend
-python manage.py refresh_dashboard_kpis 2>nul
-python manage.py refresh_dashboard_kpis_compras 2>nul
-python manage.py refresh_dre_consolidada 2>nul
-python manage.py refresh_movimento_diario 2>nul
-python manage.py rebuild_movimento_produto_mensal 2>nul
-python manage.py rebuild_movimento_compra_produto_mensal 2>nul
-popd
-
-:: ── Build do frontend ─────────────────────────────────────────────────────────
-echo [4/5] Gerando build de producao do frontend...
-pushd frontend
-call npm run build
-if errorlevel 1 ( popd & echo Falha ao gerar build do frontend. & pause & exit /b 1 )
-popd
-
-:: ── Pasta de logs ─────────────────────────────────────────────────────────────
-if not exist "logs" mkdir logs
-
 :: ── Inicia serviços em background (nesta janela, sem abrir novas) ────────────
 echo [5/5] Iniciando servicos...
 
@@ -139,6 +91,28 @@ echo  ================================================================
 echo.
 echo   Pressione qualquer tecla para ENCERRAR todos os servicos.
 echo.
+
+
+echo [3/5] Atualizando KPIs do dashboard...
+set BUSINESS_FILIAL=centro
+pushd backend
+python manage.py refresh_dashboard_kpis 2>nul
+python manage.py refresh_dashboard_kpis_compras 2>nul
+python manage.py refresh_dre_consolidada 2>nul
+python manage.py refresh_movimento_diario 2>nul
+popd
+set BUSINESS_FILIAL=henriques
+pushd backend
+python manage.py refresh_dashboard_kpis 2>nul
+python manage.py refresh_dashboard_kpis_compras 2>nul
+python manage.py refresh_dre_consolidada 2>nul
+python manage.py refresh_movimento_diario 2>nul
+popd
+
+:: ── Pasta de logs ─────────────────────────────────────────────────────────────
+if not exist "logs" mkdir logs
+
+
 pause >nul
 
 :: ── Encerra todos os serviços pelas portas ────────────────────────────────────

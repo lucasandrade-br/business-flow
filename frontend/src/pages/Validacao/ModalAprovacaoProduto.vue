@@ -226,25 +226,7 @@
         </label>
       </section>
 
-      <section class="rounded-md border border-gray-200 p-3">
-        <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Categorias por raiz (opcional)</h4>
-        <p v-if="treeLoading" class="mt-2 text-xs text-gray-500">Carregando arvore...</p>
-        <p v-else-if="treeError" class="mt-2 text-xs text-red-600">{{ treeError }}</p>
-        <div v-else class="mt-3 grid gap-3 lg:grid-cols-2">
-          <div v-for="root in roots" :key="root.id_conta" class="space-y-1">
-            <label class="text-xs font-medium text-gray-600">{{ root.nome_conta }}</label>
-            <select
-              v-model="selectedByRoot[root.id_conta]"
-              class="w-full appearance-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">Selecione uma subcategoria</option>
-              <option v-for="child in flattenCategorias(root)" :key="child.id_conta" :value="String(child.id_conta)">
-                {{ child.label }}
-              </option>
-            </select>
-          </div>
-        </div>
-      </section>
+      <CategoriasPorRaiz v-model="categoriasSelecionadas" title="Categorias por raiz (opcional)" />
 
       <p v-if="error" class="text-xs text-red-600">{{ error }}</p>
     </div>
@@ -274,9 +256,11 @@ import { computed, reactive, ref, watch } from "vue";
 import { HelpCircle } from "lucide-vue-next";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
+import CategoriasPorRaiz from "@/components/ui/CategoriasPorRaiz.vue";
 import CurrencyInput from "@/components/ui/CurrencyInput.vue";
 import PercentInput from "@/components/ui/PercentInput.vue";
 
+import { extractApiError } from "@/services/apiErrors";
 import { getApiBaseUrl } from "@/services/firebirdSync"
 const API_BASE_URL = getApiBaseUrl();
 
@@ -287,13 +271,11 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue", "approved"]);
 
-const treeLoading = ref(false);
-const treeError = ref("");
 const saving = ref(false);
 const error = ref("");
-const roots = ref([]);
 const unidadesOptions = ref([]);
 const aliquotasOptions = ref([]);
+const categoriasSelecionadas = ref([]);
 
 const form = reactive({
   nome_original: "",
@@ -315,8 +297,6 @@ const form = reactive({
   usuario: "",
 });
 
-const selectedByRoot = reactive({});
-
 const open = computed({
   get: () => props.modelValue,
   set: (value) => emit("update:modelValue", value),
@@ -326,7 +306,7 @@ watch(
   () => props.modelValue,
   async (value) => {
     if (value) {
-      await Promise.all([fetchTree(), fetchUnidades(), fetchAliquotas()]);
+      await Promise.all([fetchUnidades(), fetchAliquotas()]);
       hydrateFormFromProduto();
     }
   },
@@ -349,24 +329,6 @@ function parseLocaleDecimal(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function flattenCategorias(root) {
-  const result = [];
-
-  function visit(nodes, depth) {
-    for (const node of nodes || []) {
-      const prefix = depth > 0 ? `${"\u00A0\u00A0".repeat(depth)}\u2514\u2500 ` : "";
-      result.push({
-        id_conta: node.id_conta,
-        label: `${prefix}${node.codigo_hierarquico} ${node.nome_conta}`,
-      });
-      visit(node.filhas, depth + 1);
-    }
-  }
-
-  visit(root.filhas || [], 0);
-  return result;
-}
-
 function resetForm() {
   form.nome_original = "";
   form.nome_gerencial = "";
@@ -386,10 +348,7 @@ function resetForm() {
   form.cod_rel = "";
   form.usuario = "";
   error.value = "";
-
-  for (const key of Object.keys(selectedByRoot)) {
-    delete selectedByRoot[key];
-  }
+  categoriasSelecionadas.value = [];
 }
 
 function normalizeString(value) {
@@ -443,22 +402,6 @@ function valorSotMonetario(campo) {
   return Number(dados[campo] || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function applyCategoriasToRoots(categoriasIds = []) {
-  const desired = new Set(
-    (categoriasIds || [])
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id) && id > 0),
-  );
-
-  for (const root of roots.value) {
-    selectedByRoot[root.id_conta] = "";
-    const match = flattenCategorias(root).find((child) => desired.has(Number(child.id_conta)));
-    if (match) {
-      selectedByRoot[root.id_conta] = String(match.id_conta);
-    }
-  }
-}
-
 function hydrateFormFromProduto() {
   if (!props.produto) {
     resetForm();
@@ -489,7 +432,9 @@ function hydrateFormFromProduto() {
     form.cod_rel = dados.cod_rel ?? "";
     form.usuario = dados.usuario ?? "";
 
-    applyCategoriasToRoots(dados.categorias_ids || []);
+    categoriasSelecionadas.value = (dados.categorias_ids || [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
     return;
   }
 
@@ -503,30 +448,6 @@ function hydrateFormFromProduto() {
   form.status = normalizeStatusLabel(props.produto.status) !== "INATIVO";
   form.custo = stagedCusto;
   form.valor_venda = stagedVenda;
-}
-
-async function fetchTree() {
-  treeLoading.value = true;
-  treeError.value = "";
-
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/cadastros/plano-contas/arvore`);
-    if (!response.ok) {
-      throw new Error(`Erro ${response.status}`);
-    }
-
-    const data = await response.json();
-    roots.value = Array.isArray(data) ? data : [];
-
-    for (const root of roots.value) {
-      selectedByRoot[root.id_conta] = "";
-    }
-  } catch (err) {
-    console.error(err);
-    treeError.value = "Nao foi possivel carregar a arvore de plano de contas.";
-  } finally {
-    treeLoading.value = false;
-  }
 }
 
 async function fetchUnidades() {
@@ -566,8 +487,7 @@ async function fetchAliquotas() {
 }
 
 function buildPayload() {
-  const categorias_ids = Object.values(selectedByRoot)
-    .filter((id) => id !== "")
+  const categorias_ids = categoriasSelecionadas.value
     .map((id) => Number(id))
     .filter((id) => Number.isFinite(id) && id > 0);
 
@@ -622,7 +542,7 @@ async function save() {
     open.value = false;
   } catch (err) {
     console.error(err);
-    error.value = "Falha ao aprovar produto.";
+    error.value = extractApiError(err, "Falha ao aprovar produto.");
   } finally {
     saving.value = false;
   }

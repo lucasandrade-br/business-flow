@@ -37,6 +37,8 @@ const props = defineProps({
   required: { type: Boolean, default: false },
   helpText: { type: String, default: "" },
   inputClass: { type: String, default: "" },
+  // Faixa de casas decimais; use quando o dado pode ter mais de 2 (ex.: custo unitario).
+  precision: { type: [Number, Object], default: null },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -45,7 +47,8 @@ const { inputRef, numberValue, setValue } = useCurrencyInput(
   {
     currency: "BRL",
     locale: "pt-BR",
-    autoDecimalDigits: true,
+    precision: props.precision ?? undefined,
+    autoDecimalDigits: props.precision === null,
     hideCurrencySymbolOnFocus: false,
     hideGroupingSeparatorOnFocus: false,
   },

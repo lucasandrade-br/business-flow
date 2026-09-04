@@ -4,6 +4,8 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from apps.cadastros.services import validar_categorias_folha
+
 
 class DivergenciaCampoSerializer(serializers.Serializer):
     campo = serializers.CharField()
@@ -102,6 +104,9 @@ class AprovarProdutoSerializer(serializers.Serializer):
             raise serializers.ValidationError("codigo deve ter exatamente 5 caracteres.")
 
         return padded
+
+    def validate_categorias_ids(self, value):
+        return validar_categorias_folha(value)
 
 
 class ClientePendenteSerializer(serializers.Serializer):

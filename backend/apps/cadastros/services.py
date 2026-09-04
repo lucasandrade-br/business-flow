@@ -10,6 +10,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+from rest_framework.serializers import ValidationError
 
 
 EXPORT_CONTENT_TYPES = {
@@ -98,3 +99,64 @@ def validate_safe_select_sql(query_sql: str) -> str:
     if any(re.search(rf"\b{token}\b", query_upper) for token in FORBIDDEN_SQL_TOKENS):
         raise PermissionDenied("Consulta bloqueada por regra de seguranca.")
     return normalized
+
+
+def validar_categorias_folha(ids) -> list[int]:
+    """Aceita apenas folhas e no maximo uma categoria de cada familia raiz."""
+    from .models import PlanoConta
+
+    normalizados = []
+    for item in ids or []:
+        valor = getattr(item, "pk", item)
+        normalizados.append(int(valor))
+
+    unicos = sorted(set(normalizados))
+    if not unicos:
+        return []
+
+    existentes = {
+        conta["id_conta"]: conta["codigo_hierarquico"]
+        for conta in PlanoConta.objects.filter(id_conta__in=unicos).values("id_conta", "codigo_hierarquico")
+    }
+
+    faltantes = [item for item in unicos if item not in existentes]
+    if faltantes:
+        raise ValidationError(f"Categoria(s) inexistente(s): {', '.join(str(item) for item in faltantes)}.")
+
+    com_filhas = set(
+        PlanoConta.objects.filter(conta_pai_id__in=unicos).values_list("conta_pai_id", flat=True).distinct()
+    )
+    if com_filhas:
+        codigos = ", ".join(existentes[item] or str(item) for item in sorted(com_filhas))
+        raise ValidationError(
+            f"Apenas categorias folha podem ser vinculadas a produtos. Categoria(s) intermediaria(s): {codigos}."
+        )
+
+    pais = dict(PlanoConta.objects.values_list("id_conta", "conta_pai_id"))
+    raiz_por_categoria = {}
+    for categoria_id in unicos:
+        atual = categoria_id
+        visitados = set()
+        while pais.get(atual) is not None:
+            if atual in visitados:
+                raise ValidationError("O plano de contas possui um ciclo hierarquico invalido.")
+            visitados.add(atual)
+            atual = pais[atual]
+        raiz_por_categoria[categoria_id] = atual
+
+    categorias_por_raiz = {}
+    for categoria_id, raiz_id in raiz_por_categoria.items():
+        categorias_por_raiz.setdefault(raiz_id, []).append(categoria_id)
+
+    ambiguas = [categorias for categorias in categorias_por_raiz.values() if len(categorias) > 1]
+    if ambiguas:
+        codigos_ambiguos = [
+            ", ".join(existentes[categoria_id] or str(categoria_id) for categoria_id in categorias)
+            for categorias in ambiguas
+        ]
+        raise ValidationError(
+            "Um produto pode estar vinculado a apenas uma categoria folha por familia. "
+            f"Conflito(s): {'; '.join(codigos_ambiguos)}."
+        )
+
+    return unicos

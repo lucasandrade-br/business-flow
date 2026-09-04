@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { BarChart2, CalendarDays, ChevronDown, ChevronRight, ShoppingCart, TrendingUp } from 'lucide-vue-next'
+import { BarChart2, CalendarDays, ChevronDown, ChevronRight, Layers3, PackageSearch, ShoppingCart, TrendingUp } from 'lucide-vue-next'
 import { mainSidebarPinned } from '@/stores/mainSidebar.js'
 
 onMounted(() => { mainSidebarPinned.value = false })
 
 const route = useRoute()
-const sectionOpen = ref({ visaoGeral: true, vendas: true, compras: true })
+const sectionOpen = ref({ visaoGeral: true, vendas: true, compras: true, categorias: true })
 
 function toggleSection(key) {
   sectionOpen.value[key] = !sectionOpen.value[key]
@@ -56,7 +56,7 @@ function linkClass(to) {
     </div>
 
     <!-- Navegação -->
-    <nav class="flex-1 overflow-y-auto space-y-4 analise-scroll">
+    <nav class="app-scrollbar app-scrollbar--compact flex-1 overflow-y-auto space-y-4">
       <section>
         <button
           type="button"
@@ -69,7 +69,7 @@ function linkClass(to) {
         <div class="mt-1 space-y-1 overflow-hidden transition-all duration-200" :class="sectionOpen.visaoGeral ? 'max-h-56 opacity-100' : 'max-h-0 opacity-0'">
           <RouterLink to="/analise/visao-geral" :class="linkClass('/analise/visao-geral')">
             <BarChart2 class="h-4 w-4 shrink-0" />
-            <span class="whitespace-nowrap">Receita</span>
+            <span class="whitespace-nowrap">Geral</span>
           </RouterLink>
         </div>
       </section>
@@ -92,6 +92,16 @@ function linkClass(to) {
             <CalendarDays class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Movimento Clientes</span>
           </RouterLink>
+          <RouterLink to="/analise/categorias/vendas" :class="linkClass('/analise/categorias/vendas')">
+            <Layers3 class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Por Categoria</span>
+          </RouterLink>
+          <RouterLink to="/analise/categorias/produtos/vendas" :class="linkClass('/analise/categorias/produtos/vendas')">
+            <PackageSearch class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Por Produto</span>
+          </RouterLink>
+
+
         </div>
       </section>
 
@@ -109,8 +119,18 @@ function linkClass(to) {
             <ShoppingCart class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Análise de Compras</span>
           </RouterLink>
+          <RouterLink to="/analise/categorias/compras" :class="linkClass('/analise/categorias/compras')">
+            <Layers3 class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Por Categoria</span>
+          </RouterLink>
+          <RouterLink to="/analise/categorias/produtos/compras" :class="linkClass('/analise/categorias/produtos/compras')">
+            <PackageSearch class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Por Produto</span>
+          </RouterLink>
         </div>
       </section>
+
+
     </nav>
   </aside>
 
@@ -120,12 +140,3 @@ function linkClass(to) {
   </div>
 </template>
 
-<style scoped>
-.analise-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: #c4c4c4 transparent;
-}
-.analise-scroll::-webkit-scrollbar { width: 4px; }
-.analise-scroll::-webkit-scrollbar-track { background: transparent; }
-.analise-scroll::-webkit-scrollbar-thumb { background-color: #c4c4c4; border-radius: 9999px; }
-</style>

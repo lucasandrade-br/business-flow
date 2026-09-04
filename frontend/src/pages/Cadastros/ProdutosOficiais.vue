@@ -16,16 +16,16 @@
     >
       <template #header-extra>
         <div class="flex items-center gap-2">
-          <select
+          <RemoteSearchSelect
             v-model="categoriaFiltro"
-            class="appearance-none rounded-md border border-gray-200 bg-white px-3 py-2 text-xs"
-            @change="onCategoriaFiltroChange"
-          >
-            <option value="">Todas as Categorias</option>
-            <option v-for="item in categoriaFiltroOptions" :key="item.value" :value="String(item.value)">
-              {{ item.label }}
-            </option>
-          </select>
+            :endpoint="opcoesEndpoint"
+            value-field="id_conta"
+            label-field="label"
+            resolve-param="ids"
+            all-label="Todas as Categorias"
+            search-placeholder="Buscar por codigo ou nome"
+            :limit="50"
+          />
           <div class="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5">
             <Search class="h-4 w-4 text-gray-400" />
             <input
@@ -173,25 +173,7 @@
         </label>
       </section>
 
-      <section class="mt-4 rounded-md border border-gray-200 p-3">
-        <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Categorias por raiz</h4>
-        <p v-if="treeLoading" class="mt-2 text-xs text-gray-500">Carregando arvore...</p>
-        <p v-else-if="treeError" class="mt-2 text-xs text-red-600">{{ treeError }}</p>
-        <div v-else class="mt-3 grid gap-3 lg:grid-cols-2">
-          <div v-for="root in roots" :key="root.id_conta" class="space-y-1">
-            <label class="text-xs font-medium text-gray-600">{{ root.nome_conta }}</label>
-            <select
-              v-model="selectedByRoot[root.id_conta]"
-              class="w-full appearance-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">Selecione uma subcategoria</option>
-              <option v-for="child in flattenCategorias(root)" :key="child.id_conta" :value="String(child.id_conta)">
-                {{ child.label }}
-              </option>
-            </select>
-          </div>
-        </div>
-      </section>
+      <CategoriasPorRaiz v-model="categoriasSelecionadas" />
 
       <p v-if="modalError" class="mt-3 text-xs text-red-600">{{ modalError }}</p>
 
@@ -226,18 +208,22 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { onMounted, reactive, ref, watch } from "vue";
 import { Download, HelpCircle, Pencil, Plus, Search, Trash2 } from "lucide-vue-next";
 import BaseInput from "@/components/ui/BaseInput.vue";
+import CategoriasPorRaiz from "@/components/ui/CategoriasPorRaiz.vue";
 import CurrencyInput from "@/components/ui/CurrencyInput.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
 import PercentInput from "@/components/ui/PercentInput.vue";
 import BaseTable from "@/components/ui/BaseTable.vue";
 import ExportModal from "@/components/ui/ExportModal.vue";
+import RemoteSearchSelect from "@/components/ui/RemoteSearchSelect.vue";
 
+import { extractApiError } from "@/services/apiErrors";
 import { getApiBaseUrl } from "@/services/firebirdSync"
 const API_BASE_URL = getApiBaseUrl();
 const endpoint = `${API_BASE_URL}/api/cadastros/produtos`;
+const opcoesEndpoint = `${API_BASE_URL}/api/cadastros/plano-contas/opcoes`;
 
 const columns = [
   { key: "id_produto", label: "ID" },
@@ -255,7 +241,6 @@ const next = ref("");
 const previous = ref("");
 const search = ref("");
 const categoriaFiltro = ref("");
-const categoriaFiltroOptions = ref([]);
 const showExportModal = ref(false);
 const exporting = ref(false);
 const exportError = ref("");
@@ -266,10 +251,7 @@ const modalError = ref("");
 const editing = ref(null);
 const unidadesOptions = ref([]);
 const aliquotasOptions = ref([]);
-const treeLoading = ref(false);
-const treeError = ref("");
-const roots = ref([]);
-const selectedByRoot = reactive({});
+const categoriasSelecionadas = ref([]);
 
 const baseDefaults = {
   id_produto: "",
@@ -401,39 +383,8 @@ async function loadAliquotas() {
 
 function resetForm() {
   Object.assign(form, { ...baseDefaults });
-  for (const key of Object.keys(selectedByRoot)) {
-    delete selectedByRoot[key];
-  }
+  categoriasSelecionadas.value = [];
   modalError.value = "";
-}
-
-function flattenCategorias(root) {
-  const result = [];
-  function visit(nodes, depth) {
-    for (const node of nodes || []) {
-      const prefix = depth > 0 ? `${"  ".repeat(depth)}- ` : "";
-      result.push({ id_conta: node.id_conta, label: `${prefix}${node.codigo_hierarquico} ${node.nome_conta}` });
-      visit(node.filhas, depth + 1);
-    }
-  }
-  visit(root.filhas || [], 0);
-  return result;
-}
-
-function applyCategoriasToRoots(categoriasIds = []) {
-  const desired = new Set((categoriasIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0));
-  for (const root of roots.value) {
-    selectedByRoot[root.id_conta] = "";
-    const match = flattenCategorias(root).find((child) => desired.has(Number(child.id_conta)));
-    if (match) selectedByRoot[root.id_conta] = String(match.id_conta);
-  }
-}
-
-function selectedCategorias() {
-  return Object.values(selectedByRoot)
-    .filter((id) => id !== "")
-    .map((id) => Number(id))
-    .filter((id) => Number.isFinite(id) && id > 0);
 }
 
 function goNext() {
@@ -451,14 +402,14 @@ async function reload() {
 async function openCreate() {
   editing.value = null;
   resetForm();
-  await Promise.all([loadUnidades(), loadAliquotas(), loadPlanoContasTree()]);
+  await Promise.all([loadUnidades(), loadAliquotas()]);
   showModal.value = true;
 }
 
 async function openEdit(row) {
   editing.value = row;
   resetForm();
-  await Promise.all([loadUnidades(), loadAliquotas(), loadPlanoContasTree()]);
+  await Promise.all([loadUnidades(), loadAliquotas()]);
   Object.assign(form, {
     ...baseDefaults,
     ...row,
@@ -472,49 +423,13 @@ async function openEdit(row) {
     id_und_medida: row.id_und_medida || "",
     ult_mov: row.ult_mov || "",
   });
-  applyCategoriasToRoots(Array.isArray(row.categorias) ? row.categorias : []);
+  categoriasSelecionadas.value = Array.isArray(row.categorias) ? row.categorias.map((id) => Number(id)) : [];
   showModal.value = true;
 }
 
-async function loadPlanoContasTree() {
-  treeLoading.value = true;
-  treeError.value = "";
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/cadastros/plano-contas/arvore`);
-    if (!response.ok) throw new Error(`Erro ${response.status}`);
-    const data = await response.json();
-    roots.value = Array.isArray(data) ? data : [];
-
-    const flattened = [];
-    const walk = (nodes, depth) => {
-      for (const node of nodes || []) {
-        const prefix = depth > 0 ? `${"  ".repeat(depth)}- ` : "";
-        flattened.push({
-          value: node.id_conta,
-          label: `${prefix}${node.codigo_hierarquico} ${node.nome_conta}`,
-        });
-        walk(node.filhas, depth + 1);
-      }
-    };
-    walk(roots.value, 0);
-    categoriaFiltroOptions.value = flattened;
-
-    for (const root of roots.value) {
-      selectedByRoot[root.id_conta] = "";
-    }
-  } catch (err) {
-    console.error(err);
-    roots.value = [];
-    categoriaFiltroOptions.value = [];
-    treeError.value = "Nao foi possivel carregar a arvore de plano de contas.";
-  } finally {
-    treeLoading.value = false;
-  }
-}
-
-async function onCategoriaFiltroChange() {
-  await reload();
-}
+watch(categoriaFiltro, () => {
+  reload();
+});
 
 async function save() {
   saving.value = true;
@@ -540,7 +455,7 @@ async function save() {
     barras: String(form.barras || "").trim(),
     ncm: String(form.ncm || "").trim(),
     ult_mov: form.ult_mov || null,
-    categorias: selectedCategorias(),
+    categorias: categoriasSelecionadas.value,
   };
 
   try {
@@ -557,7 +472,7 @@ async function save() {
     await reload();
   } catch (err) {
     console.error(err);
-    modalError.value = "Falha ao salvar produto.";
+    modalError.value = extractApiError(err, "Falha ao salvar produto.");
   } finally {
     saving.value = false;
   }
@@ -606,6 +521,7 @@ async function exportData({ tipo, colunas, query_sql, formato, salvar_nome }) {
         query_sql,
         formato,
         search: search.value.trim(),
+        filtros: categoriaFiltro.value === "" ? {} : { categoria_id: categoriaFiltro.value },
       }),
     });
     if (!response.ok) {
@@ -634,6 +550,6 @@ async function exportData({ tipo, colunas, query_sql, formato, salvar_nome }) {
 }
 
 onMounted(() => {
-  Promise.all([load(), loadUnidades(), loadAliquotas(), loadPlanoContasTree()]);
+  Promise.all([load(), loadUnidades(), loadAliquotas()]);
 });
 </script>

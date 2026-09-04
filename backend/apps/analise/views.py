@@ -1,16 +1,243 @@
+import calendar
 from collections import defaultdict
+from datetime import date
+from decimal import Decimal
 
+from django.db.models import Max, Sum
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
+
+from apps.cadastros.models import Fornecedor, PlanoConta
+from apps.compras.models import Compra
+from apps.vendas.models import Venda
 
 from .models import (
     DashboardKpiVenda,
     DashboardKpiCompra,
     DreMensalConsolidada,
+    MovimentoCompraProdutoMensal,
     MovimentoDiario,
+    MovimentoProdutoMensal,
+)
+from .services import (
+    CategoriasAmbiguasError,
+    detectar_mes_aberto,
+    montar_analise_compras_categorias,
+    montar_analise_compras_produtos,
+    montar_analise_vendas_categorias,
+    montar_analise_vendas_produtos,
+    status_agregados_compras,
+    status_agregados_vendas,
 )
 
 _DIAS_LABELS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"]
+
+
+@require_GET
+def vendas_por_categorias(request):
+    ano_raw = request.GET.get("ano")
+    raiz_raw = request.GET.get("raiz_id")
+    metrica = str(request.GET.get("metrica") or "").strip().lower()
+
+    if ano_raw is None and raiz_raw is None and not metrica:
+        return JsonResponse(status_agregados_vendas())
+
+    if ano_raw is None or raiz_raw is None or not metrica:
+        return JsonResponse(
+            {"detail": "Informe os parametros 'ano', 'raiz_id' e 'metrica'."},
+            status=400,
+        )
+    try:
+        ano = int(ano_raw)
+        raiz_id = int(raiz_raw)
+    except (TypeError, ValueError):
+        return JsonResponse({"detail": "Os parametros 'ano' e 'raiz_id' devem ser inteiros."}, status=400)
+    if metrica not in {"valor", "quantidade"}:
+        return JsonResponse({"detail": "Metrica invalida. Use 'valor' ou 'quantidade'."}, status=400)
+
+    try:
+        payload = montar_analise_vendas_categorias(ano=ano, raiz_id=raiz_id, metrica=metrica)
+    except CategoriasAmbiguasError as exc:
+        return JsonResponse(
+            {
+                "detail": "Existem produtos vinculados a mais de uma categoria folha desta familia.",
+                "produtos_conflitantes": exc.produtos,
+            },
+            status=409,
+        )
+    except MovimentoProdutoMensal.DoesNotExist:
+        return JsonResponse({"detail": "Ano sem dados analiticos disponiveis."}, status=404)
+    except PlanoConta.DoesNotExist:
+        return JsonResponse({"detail": "Familia raiz nao encontrada."}, status=404)
+
+    return JsonResponse(payload)
+
+
+@require_GET
+def vendas_por_produtos(request):
+    ano_raw = request.GET.get("ano")
+    raiz_raw = request.GET.get("raiz_id")
+    categoria_raw = request.GET.get("categoria_id")
+    metrica = str(request.GET.get("metrica") or "").strip().lower()
+    page_raw = request.GET.get("page", "1")
+    incluir_inativos = str(request.GET.get("incluir_inativos") or "").strip().lower() in {
+        "1", "true", "on", "sim", "yes"
+    }
+
+    if ano_raw is None or raiz_raw is None or categoria_raw is None or not metrica:
+        return JsonResponse(
+            {"detail": "Informe os parametros 'ano', 'raiz_id', 'categoria_id' e 'metrica'."},
+            status=400,
+        )
+    try:
+        ano = int(ano_raw)
+        raiz_id = int(raiz_raw)
+        categoria_id = int(categoria_raw)
+        pagina = int(page_raw)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {"detail": "Os parametros 'ano', 'raiz_id', 'categoria_id' e 'page' devem ser inteiros."},
+            status=400,
+        )
+    if metrica not in {"valor", "quantidade"}:
+        return JsonResponse({"detail": "Metrica invalida. Use 'valor' ou 'quantidade'."}, status=400)
+
+    try:
+        payload = montar_analise_vendas_produtos(
+            ano=ano,
+            raiz_id=raiz_id,
+            categoria_id=categoria_id,
+            metrica=metrica,
+            incluir_inativos=incluir_inativos,
+            search=request.GET.get("search", ""),
+            pagina=pagina,
+        )
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
+    except MovimentoProdutoMensal.DoesNotExist:
+        return JsonResponse({"detail": "Ano sem dados analiticos disponiveis."}, status=404)
+    except PlanoConta.DoesNotExist:
+        return JsonResponse({"detail": "Familia ou categoria nao encontrada."}, status=404)
+
+    return JsonResponse(payload)
+
+
+def _fornecedor_id_parametro(request):
+    fornecedor_raw = request.GET.get("fornecedor_id")
+    if fornecedor_raw in (None, ""):
+        return None
+    return int(fornecedor_raw)
+
+
+@require_GET
+def compras_por_categorias(request):
+    ano_raw = request.GET.get("ano")
+    raiz_raw = request.GET.get("raiz_id")
+    metrica = str(request.GET.get("metrica") or "").strip().lower()
+
+    if ano_raw is None and raiz_raw is None and not metrica and not request.GET.get("fornecedor_id"):
+        return JsonResponse(status_agregados_compras())
+    if ano_raw is None or raiz_raw is None or not metrica:
+        return JsonResponse(
+            {"detail": "Informe os parametros 'ano', 'raiz_id' e 'metrica'."},
+            status=400,
+        )
+    try:
+        ano = int(ano_raw)
+        raiz_id = int(raiz_raw)
+        fornecedor_id = _fornecedor_id_parametro(request)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {"detail": "Os parametros 'ano', 'raiz_id' e 'fornecedor_id' devem ser inteiros."},
+            status=400,
+        )
+    if metrica not in {"valor", "quantidade"}:
+        return JsonResponse({"detail": "Metrica invalida. Use 'valor' ou 'quantidade'."}, status=400)
+
+    try:
+        payload = montar_analise_compras_categorias(
+            ano=ano,
+            raiz_id=raiz_id,
+            metrica=metrica,
+            fornecedor_id=fornecedor_id,
+        )
+    except CategoriasAmbiguasError as exc:
+        return JsonResponse(
+            {
+                "detail": "Existem produtos vinculados a mais de uma categoria folha desta familia.",
+                "produtos_conflitantes": exc.produtos,
+            },
+            status=409,
+        )
+    except MovimentoCompraProdutoMensal.DoesNotExist:
+        return JsonResponse({"detail": "Ano sem dados analiticos disponiveis."}, status=404)
+    except PlanoConta.DoesNotExist:
+        return JsonResponse({"detail": "Familia raiz nao encontrada."}, status=404)
+    except Fornecedor.DoesNotExist:
+        return JsonResponse({"detail": "Fornecedor nao encontrado."}, status=404)
+
+    return JsonResponse(payload)
+
+
+@require_GET
+def compras_por_produtos(request):
+    ano_raw = request.GET.get("ano")
+    raiz_raw = request.GET.get("raiz_id")
+    categoria_raw = request.GET.get("categoria_id")
+    metrica = str(request.GET.get("metrica") or "").strip().lower()
+    page_raw = request.GET.get("page", "1")
+    incluir_inativos = str(request.GET.get("incluir_inativos") or "").strip().lower() in {
+        "1", "true", "on", "sim", "yes"
+    }
+
+    if ano_raw is None or raiz_raw is None or categoria_raw is None or not metrica:
+        return JsonResponse(
+            {"detail": "Informe os parametros 'ano', 'raiz_id', 'categoria_id' e 'metrica'."},
+            status=400,
+        )
+    try:
+        ano = int(ano_raw)
+        raiz_id = int(raiz_raw)
+        categoria_id = int(categoria_raw)
+        pagina = int(page_raw)
+        fornecedor_id = _fornecedor_id_parametro(request)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {
+                "detail": (
+                    "Os parametros 'ano', 'raiz_id', 'categoria_id', 'fornecedor_id' e 'page' "
+                    "devem ser inteiros."
+                )
+            },
+            status=400,
+        )
+    if metrica not in {"valor", "quantidade", "custo_medio"}:
+        return JsonResponse(
+            {"detail": "Metrica invalida. Use 'valor', 'quantidade' ou 'custo_medio'."},
+            status=400,
+        )
+
+    try:
+        payload = montar_analise_compras_produtos(
+            ano=ano,
+            raiz_id=raiz_id,
+            categoria_id=categoria_id,
+            metrica=metrica,
+            fornecedor_id=fornecedor_id,
+            incluir_inativos=incluir_inativos,
+            search=request.GET.get("search", ""),
+            pagina=pagina,
+        )
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
+    except MovimentoCompraProdutoMensal.DoesNotExist:
+        return JsonResponse({"detail": "Ano sem dados analiticos disponiveis."}, status=404)
+    except PlanoConta.DoesNotExist:
+        return JsonResponse({"detail": "Familia ou categoria nao encontrada."}, status=404)
+    except Fornecedor.DoesNotExist:
+        return JsonResponse({"detail": "Fornecedor nao encontrado."}, status=404)
+
+    return JsonResponse(payload)
 
 
 def _dia_semana(d):
@@ -25,6 +252,11 @@ def dashboard_kpis(request):
     except DashboardKpiVenda.DoesNotExist:
         return JsonResponse({"detail": "KPIs ainda nao calculados."}, status=404)
 
+    graficos = kpi.dados_periodicos_grafico or {"mensal": [], "semanal": []}
+
+    def _periodos_fechados(granularidade):
+        return sum(1 for item in graficos.get(granularidade, []) if not item.get("parcial"))
+
     return JsonResponse({
         "ytd_receita_atual": str(kpi.ytd_receita_atual),
         "ytd_receita_anterior_equivalente": str(kpi.ytd_receita_anterior_equivalente),
@@ -35,6 +267,23 @@ def dashboard_kpis(request):
         "mtd_receita_atual": str(kpi.mtd_receita_atual),
         "mtd_receita_anterior_equivalente": str(kpi.mtd_receita_anterior_equivalente),
         "dados_mensais_grafico": kpi.dados_mensais_grafico,
+        "faturamento_medio": {
+            "semanal": {
+                "atual": str(kpi.faturamento_semanal_medio_atual),
+                "anterior_equivalente": str(kpi.faturamento_semanal_medio_anterior_equivalente),
+                "periodos_considerados": _periodos_fechados("semanal"),
+            },
+            "mensal": {
+                "atual": str(kpi.faturamento_mensal_medio_atual),
+                "anterior_equivalente": str(kpi.faturamento_mensal_medio_anterior_equivalente),
+                "periodos_considerados": _periodos_fechados("mensal"),
+            },
+        },
+        "graficos": graficos,
+        "vendas_sem_horario": {
+            "quantidade": kpi.volume_sem_horario_atual,
+            "faturamento": str(kpi.faturamento_sem_horario_atual),
+        },
         "ultima_data_processada": kpi.ultima_data_processada.isoformat() if kpi.ultima_data_processada else None,
         "atualizado_em": kpi.atualizado_em.isoformat(),
     })
@@ -83,6 +332,22 @@ def dre_dashboard(request):
         return JsonResponse({"detail": "Parâmetro 'ano' inválido."}, status=400)
 
     ano_anterior = ano - 1
+    periodo_equivalente_solicitado = str(
+        request.GET.get("periodo_equivalente") or ""
+    ).strip().lower() in {"1", "true", "on", "sim", "yes"}
+    ultima_venda = (
+        Venda.objects.filter(data_venda__year=ano)
+        .exclude(status="C")
+        .aggregate(ultima=Max("data_venda"))["ultima"]
+    )
+    ultima_compra = (
+        Compra.objects.filter(data_emissao__year=ano)
+        .exclude(nfe_status__iexact="CANCELADA")
+        .aggregate(ultima=Max("data_emissao"))["ultima"]
+    )
+    datas_disponiveis = [data for data in (ultima_venda, ultima_compra) if data is not None]
+    ultima_data_disponivel = max(datas_disponiveis) if datas_disponiveis else None
+    mes_aberto = detectar_mes_aberto(ano, ultima_data_disponivel)
 
     rows = {
         (r.ano, r.mes): r
@@ -110,6 +375,57 @@ def dre_dashboard(request):
 
     rec_a, cst_a = _soma(ano)
     rec_b, cst_b = _soma(ano_anterior)
+    data_corte_atual = None
+    data_corte_anterior = None
+    periodo_equivalente_aplicado = False
+
+    if periodo_equivalente_solicitado:
+        if datas_disponiveis:
+            data_corte_atual = ultima_data_disponivel
+            ultimo_dia_anterior = calendar.monthrange(ano_anterior, data_corte_atual.month)[1]
+            data_corte_anterior = date(
+                ano_anterior,
+                data_corte_atual.month,
+                min(data_corte_atual.day, ultimo_dia_anterior),
+            )
+
+            rec_a = (
+                Venda.objects.filter(
+                    data_venda__gte=date(ano, 1, 1),
+                    data_venda__lte=data_corte_atual,
+                )
+                .exclude(status="C")
+                .aggregate(total=Sum("valor_total_documento"))["total"]
+                or Decimal("0")
+            )
+            cst_a = (
+                Compra.objects.filter(
+                    data_emissao__gte=date(ano, 1, 1),
+                    data_emissao__lte=data_corte_atual,
+                )
+                .exclude(nfe_status__iexact="CANCELADA")
+                .aggregate(total=Sum("valor_total_documento"))["total"]
+                or Decimal("0")
+            )
+            rec_b = (
+                Venda.objects.filter(
+                    data_venda__gte=date(ano_anterior, 1, 1),
+                    data_venda__lte=data_corte_anterior,
+                )
+                .exclude(status="C")
+                .aggregate(total=Sum("valor_total_documento"))["total"]
+                or Decimal("0")
+            )
+            cst_b = (
+                Compra.objects.filter(
+                    data_emissao__gte=date(ano_anterior, 1, 1),
+                    data_emissao__lte=data_corte_anterior,
+                )
+                .exclude(nfe_status__iexact="CANCELADA")
+                .aggregate(total=Sum("valor_total_documento"))["total"]
+                or Decimal("0")
+            )
+            periodo_equivalente_aplicado = True
 
     mg_a = rec_a - cst_a
     mg_b = rec_b - cst_b
@@ -125,6 +441,11 @@ def dre_dashboard(request):
     return JsonResponse({
         "anos_disponiveis": anos_disponiveis,
         "ano_consultado": ano,
+        "periodo_equivalente": periodo_equivalente_aplicado,
+        "data_corte_atual": data_corte_atual.isoformat() if data_corte_atual else None,
+        "data_corte_anterior": data_corte_anterior.isoformat() if data_corte_anterior else None,
+        "ultima_data_disponivel": ultima_data_disponivel.isoformat() if ultima_data_disponivel else None,
+        "mes_aberto": mes_aberto,
         "visao_anual": {
             "receita": {
                 "atual": float(rec_a), "anterior": float(rec_b),

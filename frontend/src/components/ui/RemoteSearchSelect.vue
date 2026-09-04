@@ -2,14 +2,15 @@
   <div ref="rootRef" class="relative">
     <button
       type="button"
-      class="inline-flex min-w-[180px] items-center justify-between gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+      :disabled="disabled"
+      :class="buttonClass"
       @click="toggleOpen"
     >
       <span class="truncate">{{ selectedLabel }}</span>
       <ChevronDown class="h-3.5 w-3.5 text-gray-400" />
     </button>
 
-    <div v-if="isOpen" class="absolute z-30 mt-1 w-72 rounded-md border border-gray-200 bg-white p-2 shadow-lg">
+    <div v-if="isOpen" :class="dropdownClass">
       <div class="relative">
         <Search class="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
         <input
@@ -73,6 +74,21 @@ const props = defineProps({
   searchPlaceholder: { type: String, default: "Pesquisar..." },
   minChars: { type: Number, default: 2 },
   limit: { type: Number, default: 20 },
+  extraParams: { type: Object, default: () => ({}) },
+  disabled: { type: Boolean, default: false },
+  buttonClass: {
+    type: String,
+    default:
+      "inline-flex min-w-[180px] items-center justify-between gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60",
+  },
+  dropdownClass: {
+    type: String,
+    default: "absolute z-30 mt-1 w-72 rounded-md border border-gray-200 bg-white p-2 shadow-lg",
+  },
+  // Quando definido, resolve o rotulo de um valor ja selecionado que nao esta na pagina carregada.
+  resolveParam: { type: String, default: "" },
+  // Rotulo do valor ja selecionado, quando o chamador ja o conhece (evita requisicao de resolucao).
+  initialLabel: { type: String, default: "" },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -93,8 +109,13 @@ const selectedLabel = computed(() => {
   if (selectedLabelRef.value) {
     return selectedLabelRef.value;
   }
+  if (props.initialLabel) {
+    return props.initialLabel;
+  }
   return `Selecionado: ${props.modelValue}`;
 });
+
+const extraParamsKey = computed(() => JSON.stringify(props.extraParams || {}));
 
 const showNoResults = computed(() => {
   if (loading.value) return false;
@@ -115,6 +136,26 @@ function normalizeLabel(item) {
   return "";
 }
 
+function buildUrl(params) {
+  const url = new URL(props.endpoint);
+  for (const [key, value] of Object.entries(props.extraParams || {})) {
+    if (value === "" || value === null || value === undefined) continue;
+    url.searchParams.set(key, String(value));
+  }
+  for (const [key, value] of Object.entries(params || {})) {
+    url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
+function mapItems(payload) {
+  const items = Array.isArray(payload?.results) ? payload.results : Array.isArray(payload) ? payload : [];
+  return items.map((item) => ({
+    value: item?.[props.valueField],
+    label: normalizeLabel(item),
+  }));
+}
+
 async function fetchOptions(term = "") {
   const normalized = String(term || "").trim();
   if (normalized && normalized.length < props.minChars) {
@@ -122,7 +163,7 @@ async function fetchOptions(term = "") {
     return;
   }
 
-  const cacheKey = normalized.toLowerCase();
+  const cacheKey = `${extraParamsKey.value}::${normalized.toLowerCase()}`;
   if (cache.value[cacheKey]) {
     options.value = cache.value[cacheKey];
     syncSelectedLabelFromOptions();
@@ -131,21 +172,15 @@ async function fetchOptions(term = "") {
 
   loading.value = true;
   try {
-    const url = new URL(props.endpoint);
-    url.searchParams.set("limit", String(props.limit));
+    const params = { limit: String(props.limit) };
     if (normalized) {
-      url.searchParams.set("search", normalized);
+      params.search = normalized;
     }
 
-    const response = await fetch(url.toString());
+    const response = await fetch(buildUrl(params));
     if (!response.ok) throw new Error(`Erro ${response.status}`);
 
-    const payload = await response.json();
-    const items = Array.isArray(payload?.results) ? payload.results : Array.isArray(payload) ? payload : [];
-    const mapped = items.map((item) => ({
-      value: item?.[props.valueField],
-      label: normalizeLabel(item),
-    }));
+    const mapped = mapItems(await response.json());
 
     cache.value[cacheKey] = mapped;
     options.value = mapped;
@@ -155,6 +190,26 @@ async function fetchOptions(term = "") {
     options.value = [];
   } finally {
     loading.value = false;
+  }
+}
+
+async function resolveSelectedLabel() {
+  const value = props.modelValue;
+  if (props.initialLabel) return;
+  if (!props.resolveParam || value === "" || value === null || value === undefined) return;
+
+  try {
+    const url = new URL(props.endpoint);
+    url.searchParams.set(props.resolveParam, String(value));
+    const response = await fetch(url.toString());
+    if (!response.ok) throw new Error(`Erro ${response.status}`);
+
+    const match = mapItems(await response.json()).find((item) => String(item.value) === String(value));
+    if (match) {
+      selectedLabelRef.value = match.label;
+    }
+  } catch (err) {
+    console.error(err);
   }
 }
 
@@ -182,6 +237,7 @@ function clearSearch() {
 }
 
 function toggleOpen() {
+  if (props.disabled) return;
   isOpen.value = !isOpen.value;
   if (isOpen.value) {
     fetchOptions(searchTerm.value);
@@ -211,11 +267,24 @@ watch(
   (value) => {
     if (value === "" || value === null || value === undefined) {
       selectedLabelRef.value = "";
-    } else {
-      syncSelectedLabelFromOptions();
+      return;
+    }
+    syncSelectedLabelFromOptions();
+    if (!selectedLabelRef.value) {
+      resolveSelectedLabel();
     }
   },
+  { immediate: true },
 );
+
+watch(extraParamsKey, () => {
+  cache.value = {};
+  options.value = [];
+  searchTerm.value = "";
+  if (isOpen.value) {
+    fetchOptions("");
+  }
+});
 
 onMounted(() => {
   document.addEventListener("click", handleOutsideClick);

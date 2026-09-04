@@ -59,6 +59,30 @@ const routes = [
             component: () => import("@/pages/analise/ComprasView.vue"),
             meta: { title: "Compras" },
           },
+          {
+            path: "categorias/vendas",
+            name: "analise-categorias-vendas",
+            component: () => import("@/pages/analise/VendasCategoriasView.vue"),
+            meta: { title: "Vendas por Categoria" },
+          },
+          {
+            path: "categorias/produtos/vendas",
+            name: "analise-categorias-produtos-vendas",
+            component: () => import("@/pages/analise/VendasProdutosView.vue"),
+            meta: { title: "Vendas por Produto" },
+          },
+          {
+            path: "categorias/compras",
+            name: "analise-categorias-compras",
+            component: () => import("@/pages/analise/ComprasCategoriasView.vue"),
+            meta: { title: "Compras por Categoria" },
+          },
+          {
+            path: "categorias/produtos/compras",
+            name: "analise-categorias-produtos-compras",
+            component: () => import("@/pages/analise/ComprasProdutosView.vue"),
+            meta: { title: "Compras por Produto" },
+          },
         ],
       },
       {

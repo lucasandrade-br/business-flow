@@ -19,6 +19,7 @@ from .models import (
     TipoVenda,
     UnidadeMedida,
 )
+from .services import validar_categorias_folha
 
 
 class UnidadeMedidaSerializer(serializers.ModelSerializer):
@@ -37,16 +38,25 @@ class PlanoContaSerializer(serializers.ModelSerializer):
         read_only_fields = ["codigo_hierarquico"]
 
 
-class PlanoContaTreeSerializer(serializers.ModelSerializer):
-    filhas = serializers.SerializerMethodField()
+class PlanoContaRaizSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlanoConta
+        fields = ["id_conta", "codigo_hierarquico", "nome_conta"]
+
+
+class PlanoContaOpcaoSerializer(serializers.ModelSerializer):
+    nivel = serializers.SerializerMethodField()
+    label = serializers.SerializerMethodField()
 
     class Meta:
         model = PlanoConta
-        fields = ["id_conta", "codigo_hierarquico", "nome_conta", "conta_pai", "filhas"]
+        fields = ["id_conta", "codigo_hierarquico", "nome_conta", "nivel", "label"]
 
-    def get_filhas(self, obj: PlanoConta):
-        children = obj.filhas.all().order_by("codigo_hierarquico")
-        return PlanoContaTreeSerializer(children, many=True).data
+    def get_nivel(self, obj: PlanoConta) -> int:
+        return len([parte for parte in str(obj.codigo_hierarquico or "").split(".") if parte != ""])
+
+    def get_label(self, obj: PlanoConta) -> str:
+        return f"{obj.codigo_hierarquico} {obj.nome_conta}".strip()
 
 
 class ProdutoSerializer(serializers.ModelSerializer):
@@ -55,6 +65,10 @@ class ProdutoSerializer(serializers.ModelSerializer):
         queryset=PlanoConta.objects.all(),
         required=False,
     )
+
+    def validate_categorias(self, value):
+        validar_categorias_folha(value)
+        return value
 
     class Meta:
         model = Produto

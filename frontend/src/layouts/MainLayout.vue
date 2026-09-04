@@ -69,7 +69,7 @@
     >
       <nav
         class="min-h-0 flex-1 space-y-4"
-        :class="isExpanded ? 'sidebar-scroll overflow-y-auto pr-1' : 'overflow-y-hidden pr-0'"
+        :class="isExpanded ? 'app-scrollbar overflow-y-auto pr-1' : 'overflow-y-hidden pr-0'"
       >
         <!-- Início -->
         <RouterLink
@@ -322,26 +322,3 @@ function linkClass(prefix) {
 }
 </script>
 
-<style scoped>
-.sidebar-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: #c4c4c4 transparent;
-}
-
-.sidebar-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-
-.sidebar-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.sidebar-scroll::-webkit-scrollbar-thumb {
-  background-color: #c4c4c4;
-  border-radius: 9999px;
-}
-
-.sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #9c9c9c;
-}
-</style>

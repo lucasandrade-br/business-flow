@@ -13,7 +13,7 @@
       </p>
 
       <div class="grid gap-3 sm:grid-cols-2">
-        <BaseInput v-model="form.valor_total" label="Total Documento" />
+        <CurrencyInput v-model="form.valor_total" label="Total Documento" :precision="PRECISAO_MOEDA" />
         <BaseInput :model-value="totalProdutosDisplay" label="Total Produtos (automatico)" readonly />
 
         <div class="space-y-1 text-xs">
@@ -30,6 +30,7 @@
             :endpoint="`${API_BASE_URL}/api/cadastros/fornecedores`"
             value-field="id_fornecedor"
             :format-option-label="formatFornecedorOption"
+            :initial-label="form.fornecedor_resolvido_label"
             all-label="Limpar selecao"
             search-placeholder="Pesquisar fornecedor por nome..."
             :min-chars="2"
@@ -60,10 +61,19 @@
                 <td class="px-2 py-1">{{ item.nome_produto_legado || item.id_produto_legado || '-' }}</td>
                 <td class="px-2 py-1">{{ item.unidade_legado || '-' }}</td>
                 <td class="px-2 py-1">
-                  <input v-model="item.quantidade" type="text" class="w-20 rounded-md border border-gray-200 px-2 py-1" />
+                  <input
+                    v-model="item.quantidade"
+                    type="text"
+                    inputmode="decimal"
+                    class="w-20 rounded-md border border-gray-200 px-2 py-1"
+                    @input="item.quantidade = limitarDecimais(item.quantidade, PRECISAO_MOEDA.max)"
+                    @blur="item.quantidade = formatarQuantidade(item.quantidade)"
+                  />
                 </td>
                 <td class="px-2 py-1">
-                  <input v-model="item.valor_custo" type="text" class="w-24 rounded-md border border-gray-200 px-2 py-1" />
+                  <div class="w-28">
+                    <CurrencyInput v-model="item.valor_custo" :precision="PRECISAO_MOEDA" />
+                  </div>
                 </td>
                 <td class="px-2 py-1">
                   <span class="inline-flex rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700">
@@ -76,6 +86,7 @@
                     :endpoint="`${API_BASE_URL}/api/cadastros/produtos`"
                     value-field="id_produto"
                     :format-option-label="formatProdutoOption"
+                    :initial-label="item.produto_resolvido_label"
                     all-label="Limpar selecao"
                     search-placeholder="Pesquisar produto..."
                     :min-chars="2"
@@ -88,6 +99,7 @@
                     :endpoint="`${API_BASE_URL}/api/cadastros/unidades-medida`"
                     value-field="id_und_medida"
                     :format-option-label="formatUnidadeOption"
+                    :initial-label="item.unidade_resolvida_label"
                     all-label="Limpar selecao"
                     search-placeholder="Pesquisar unidade..."
                     :min-chars="0"
@@ -128,6 +140,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
+import CurrencyInput from "@/components/ui/CurrencyInput.vue";
 import RemoteSearchSelect from "@/components/ui/RemoteSearchSelect.vue";
 
 import { getApiBaseUrl } from "@/services/firebirdSync"
@@ -141,12 +154,16 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue", "save"]);
 
+// Custo e quantidade legados chegam com ate 6 casas (ex.: 0.103000); arredondar para 2 distorceria os totais.
+const PRECISAO_MOEDA = { min: 2, max: 6 };
+
 const error = ref("");
 
 const form = reactive({
-  valor_total: "",
+  valor_total: 0,
   nfe_status: "",
   fornecedor_resolvido_id: "",
+  fornecedor_resolvido_label: "",
   itens: [],
 });
 
@@ -166,10 +183,13 @@ watch(
 
 function hydrate(row) {
   error.value = "";
-  form.valor_total = String(row?.totais?.total_compra ?? "");
+  form.valor_total = Number(row?.totais?.total_compra ?? 0) || 0;
   form.nfe_status = String(row?.nfe_status ?? "");
   form.fornecedor_resolvido_id = row?.fornecedor_resolvido?.id_fornecedor
     ? String(row.fornecedor_resolvido.id_fornecedor)
+    : "";
+  form.fornecedor_resolvido_label = row?.fornecedor_resolvido
+    ? formatFornecedorOption(row.fornecedor_resolvido)
     : "";
 
   form.itens = (row?.itens || []).map((item) => ({
@@ -177,12 +197,39 @@ function hydrate(row) {
     id_produto_legado: item.id_produto_legado,
     nome_produto_legado: item.nome_produto_legado,
     unidade_legado: item.unidade_legado,
-    quantidade: String(item.quantidade ?? ""),
-    valor_custo: String(item.valor_custo ?? ""),
+    quantidade: formatarQuantidade(item.quantidade),
+    valor_custo: Number(item.valor_custo ?? 0) || 0,
     valor_total_calculado: String(item.valor_total_calculado ?? ""),
     produto_resolvido_id: item.produto_resolvido_id ? String(item.produto_resolvido_id) : "",
+    produto_resolvido_label: item.produto_resolvido ? formatProdutoOption(item.produto_resolvido) : "",
     unidade_resolvida_id: item.unidade_resolvida_id ? String(item.unidade_resolvida_id) : "",
+    unidade_resolvida_label: item.unidade_resolvida ? formatUnidadeOption(item.unidade_resolvida) : "",
   }));
+}
+
+function limitarDecimais(value, maxDecimals) {
+  const clean = String(value ?? "").replace(/[^\d,]/g, "");
+  const parts = clean.split(",");
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]},${parts.slice(1).join("").slice(0, maxDecimals)}`;
+}
+
+function formatarQuantidade(value) {
+  const parsed = parseLocaleDecimal(value);
+  if (parsed === null) return "";
+  return parsed.toLocaleString("pt-BR", {
+    minimumFractionDigits: PRECISAO_MOEDA.min,
+    maximumFractionDigits: PRECISAO_MOEDA.max,
+  });
+}
+
+function parseLocaleDecimal(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  const normalized = text.includes(",") ? text.replace(/\./g, "").replace(",", ".") : text;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatDateBR(value) {
@@ -237,9 +284,9 @@ function normalizeInt(value) {
 }
 
 function calcularTotalItem(item) {
-  const quantidade = parseDecimal(item.quantidade);
-  const valorCusto = parseDecimal(item.valor_custo);
-  if (quantidade !== null && valorCusto !== null) {
+  const quantidade = parseLocaleDecimal(item.quantidade);
+  const valorCusto = Number(item.valor_custo ?? 0);
+  if (quantidade !== null && Number.isFinite(valorCusto)) {
     return quantidade * valorCusto;
   }
 
@@ -271,11 +318,7 @@ function emitSave() {
 
   const payload = {};
 
-  const valorTotal = normalizeDecimal(form.valor_total);
-  if (valorTotal !== undefined) {
-    payload.valor_total = valorTotal;
-  }
-
+  payload.valor_total = formatDecimalPayload(form.valor_total);
   payload.valor_produtos = formatDecimalPayload(totalProdutosCalculado.value);
 
   const fornecedorResolvidoId = normalizeInt(form.fornecedor_resolvido_id);
@@ -288,16 +331,8 @@ function emitSave() {
       id_stg_item_compra: item.id_stg_item_compra,
     };
 
-    const quantidade = normalizeDecimal(item.quantidade);
-    if (quantidade !== undefined) {
-      normalized.quantidade = quantidade;
-    }
-
-    const valorCusto = normalizeDecimal(item.valor_custo);
-    if (valorCusto !== undefined) {
-      normalized.valor_custo = valorCusto;
-    }
-
+    normalized.quantidade = formatDecimalPayload(parseLocaleDecimal(item.quantidade));
+    normalized.valor_custo = formatDecimalPayload(item.valor_custo);
     normalized.valor_total_calculado = formatDecimalPayload(calcularTotalItem(item));
 
     const produtoResolvidoId = normalizeInt(item.produto_resolvido_id);

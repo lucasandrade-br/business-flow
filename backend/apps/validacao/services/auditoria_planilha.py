@@ -2530,6 +2530,9 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
                 permite_override=_codigos_precheck_apenas_formato(codigos_precheck),
             )
 
+    periodos_analise = sorted(
+        {(item["stg_venda"].data_venda.year, item["stg_venda"].data_venda.month) for item in preparadas}
+    )
     inseridas = 0
     momento_consolidacao = timezone.now()
     with transaction.atomic():
@@ -2593,6 +2596,28 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
     except Exception:
         pass  # KPI refresh é não-bloqueante
 
+    resultado_analise_categorias = {
+        "periodos_processados": [],
+        "periodos_com_falha": [],
+        "desatualizado": False,
+    }
+    if inseridas:
+        from apps.analise.services import reconstruir_movimento_produto_mensal
+
+        for ano_periodo, mes_periodo in periodos_analise:
+            try:
+                reconstruir_movimento_produto_mensal(ano_periodo, mes_periodo)
+                resultado_analise_categorias["periodos_processados"].append(
+                    {"ano": ano_periodo, "mes": mes_periodo}
+                )
+            except Exception:
+                resultado_analise_categorias["periodos_com_falha"].append(
+                    {"ano": ano_periodo, "mes": mes_periodo}
+                )
+        resultado_analise_categorias["desatualizado"] = bool(
+            resultado_analise_categorias["periodos_com_falha"]
+        )
+
     return {
         "vendas_inseridas": inseridas,
         "vendas_ignoradas_duplicadas": ignoradas_duplicadas,
@@ -2601,4 +2626,5 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
         "momento_consolidacao": momento_consolidacao.isoformat(),
         "stg_vendas_removidas": stg_vendas_removidas,
         "stg_auditoria_removidas": stg_auditoria_removidas,
+        "analise_categorias": resultado_analise_categorias,
     }
