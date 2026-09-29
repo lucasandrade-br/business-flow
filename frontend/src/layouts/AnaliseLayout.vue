@@ -88,10 +88,6 @@ function linkClass(to) {
             <TrendingUp class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Análise de Vendas</span>
           </RouterLink>
-          <RouterLink to="/analise/movimento-clientes" :class="linkClass('/analise/movimento-clientes')">
-            <CalendarDays class="h-4 w-4 shrink-0" />
-            <span class="whitespace-nowrap">Movimento Clientes</span>
-          </RouterLink>
           <RouterLink to="/analise/categorias/vendas" :class="linkClass('/analise/categorias/vendas')">
             <Layers3 class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Por Categoria</span>
@@ -99,6 +95,10 @@ function linkClass(to) {
           <RouterLink to="/analise/categorias/produtos/vendas" :class="linkClass('/analise/categorias/produtos/vendas')">
             <PackageSearch class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Por Produto</span>
+          </RouterLink>
+          <RouterLink to="/analise/movimento-clientes" :class="linkClass('/analise/movimento-clientes')">
+            <CalendarDays class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Movimento Clientes</span>
           </RouterLink>
 
 

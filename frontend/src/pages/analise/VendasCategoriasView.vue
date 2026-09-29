@@ -1,7 +1,7 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink, Layers3 } from 'lucide-vue-next'
+import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink, Layers3, RefreshCw, TrendingDown, TrendingUp, X } from 'lucide-vue-next'
 import { getApiBaseUrl } from '@/services/firebirdSync'
 import {
   MESES,
@@ -17,12 +17,20 @@ import {
 
 const API_BASE_URL = getApiBaseUrl()
 const ENDPOINT = `${API_BASE_URL}/api/analise/categorias/vendas/`
+const ENDPOINT_SEMANAL = `${ENDPOINT}semanal/`
+const ENDPOINT_OSCILACOES = `${ENDPOINT}oscilacoes/`
 const router = useRouter()
 
 const familias = ref([])
 const anos = ref([])
+const semanas = ref([])
 const familiaSelecionada = ref('')
 const anoSelecionado = ref(null)
+const semanaSelecionada = ref('')
+const ultimaAtualizacaoSemanal = ref(null)
+const visao = ref('mensal')
+const equivalenteSemanal = ref(true)
+const equivalenteMensal = ref(false)
 const metrica = ref('valor')
 const dados = ref(null)
 const loadingInicial = ref(true)
@@ -30,20 +38,58 @@ const loading = ref(false)
 const erro = ref('')
 const conflitos = ref([])
 const expandidas = ref(new Set())
+const radarAberto = ref(false)
+const radarDados = ref(null)
+const radarLoading = ref(false)
+const radarErro = ref('')
+const radarConflitos = ref([])
+let sequenciaCarga = 0
+let sequenciaRadar = 0
+let intervaloAtualizacao = null
+
+function dataCurta(valor) {
+  if (!valor) return ''
+  const [ano, mes, dia] = valor.split('-')
+  return `${dia}/${mes}/${ano}`
+}
+
+function rotuloSemana(inicio) {
+  const fim = new Date(`${inicio}T12:00:00`)
+  fim.setDate(fim.getDate() + 6)
+  const fimIso = `${fim.getFullYear()}-${String(fim.getMonth() + 1).padStart(2, '0')}-${String(fim.getDate()).padStart(2, '0')}`
+  return `${dataCurta(inicio)} a ${dataCurta(fimIso)}`
+}
+
+function formatarVariacao(valor) {
+  if (valor === null || valor === undefined) return '—'
+  const numero = Number(valor)
+  if (!Number.isFinite(numero)) return '—'
+  return `${numero > 0 ? '+' : ''}${numero.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+}
+
+function corVariacao(valor) {
+  if (valor === null || valor === undefined) return 'text-gray-400'
+  return Number(valor) >= 0 ? 'text-[#2f6f4f]' : 'text-[#a82631]'
+}
 
 async function carregarOpcoes() {
   loadingInicial.value = true
   erro.value = ''
   try {
-    const [resFamilias, resMetadata] = await Promise.all([
+    const [resFamilias, resMetadata, resSemanas] = await Promise.all([
       fetch(`${API_BASE_URL}/api/cadastros/plano-contas/raizes`),
       fetch(ENDPOINT),
+      fetch(ENDPOINT_SEMANAL),
     ])
-    if (!resFamilias.ok || !resMetadata.ok) throw new Error('Não foi possível carregar as opções da análise.')
+    if (!resFamilias.ok || !resMetadata.ok || !resSemanas.ok) throw new Error('Não foi possível carregar as opções da análise.')
     familias.value = await resFamilias.json()
     const metadata = await resMetadata.json()
     anos.value = metadata.anos_disponiveis ?? []
     anoSelecionado.value = anos.value[0] ?? null
+    const metadataSemanal = await resSemanas.json()
+    semanas.value = metadataSemanal.semanas_disponiveis ?? []
+    semanaSelecionada.value = metadataSemanal.semana_inicial ?? semanas.value[0] ?? ''
+    ultimaAtualizacaoSemanal.value = metadataSemanal.atualizado_em
   } catch (e) {
     erro.value = e?.message || 'Falha ao carregar a análise.'
   } finally {
@@ -51,23 +97,28 @@ async function carregarOpcoes() {
   }
 }
 
-async function carregarRelatorio() {
-  if (!familiaSelecionada.value || !anoSelecionado.value) {
+async function carregarRelatorio(silencioso = false) {
+  const semanal = visao.value === 'semanal'
+  const sequencia = ++sequenciaCarga
+  if (!familiaSelecionada.value || (semanal ? !semanaSelecionada.value : !anoSelecionado.value)) {
     dados.value = null
     conflitos.value = []
     return
   }
-  loading.value = true
+  if (!silencioso) loading.value = true
   erro.value = ''
   conflitos.value = []
   try {
     const params = new URLSearchParams({
-      ano: String(anoSelecionado.value),
       raiz_id: String(familiaSelecionada.value),
       metrica: metrica.value,
+      periodo_equivalente: (semanal ? equivalenteSemanal.value : equivalenteMensal.value) ? '1' : '0',
     })
-    const res = await fetch(`${ENDPOINT}?${params}`)
+    if (semanal) params.set('semana_inicio', semanaSelecionada.value)
+    else params.set('ano', String(anoSelecionado.value))
+    const res = await fetch(`${semanal ? ENDPOINT_SEMANAL : ENDPOINT}?${params}`)
     const payload = await res.json().catch(() => ({}))
+    if (sequencia !== sequenciaCarga) return
     if (!res.ok) {
       conflitos.value = payload.produtos_conflitantes ?? []
       throw new Error(payload.detail || `Erro ${res.status}`)
@@ -75,15 +126,50 @@ async function carregarRelatorio() {
     dados.value = payload
     expandidas.value = new Set([payload.familia.id_conta])
   } catch (e) {
+    if (sequencia !== sequenciaCarga) return
     dados.value = null
     erro.value = e?.message || 'Falha ao processar o relatório.'
   } finally {
-    loading.value = false
+    if (sequencia === sequenciaCarga) loading.value = false
   }
 }
 
-watch([familiaSelecionada, anoSelecionado, metrica], carregarRelatorio)
-onMounted(carregarOpcoes)
+async function atualizarSemanas(forcar = false) {
+  try {
+    const response = await fetch(ENDPOINT_SEMANAL)
+    if (!response.ok) throw new Error('Falha ao verificar atualização semanal.')
+    const metadata = await response.json()
+    const semanaAnterior = semanas.value[0]
+    const mudou = metadata.atualizado_em !== ultimaAtualizacaoSemanal.value
+    semanas.value = metadata.semanas_disponiveis ?? []
+    ultimaAtualizacaoSemanal.value = metadata.atualizado_em
+    if (!semanaSelecionada.value || semanaSelecionada.value === semanaAnterior) {
+      const novaSemana = metadata.semana_inicial ?? semanas.value[0] ?? ''
+      if (novaSemana !== semanaSelecionada.value) {
+        semanaSelecionada.value = novaSemana
+        return
+      }
+    }
+    if ((mudou || forcar) && visao.value === 'semanal') {
+      carregarRelatorio(true)
+      if (radarAberto.value) carregarRadar()
+    }
+  } catch (e) {
+    if (forcar) erro.value = e?.message || 'Falha ao verificar atualização semanal.'
+  }
+}
+
+watch([familiaSelecionada, anoSelecionado, semanaSelecionada, metrica, visao, equivalenteSemanal, equivalenteMensal], () => carregarRelatorio())
+watch([familiaSelecionada, anoSelecionado, semanaSelecionada, visao], () => {
+  if (radarAberto.value) carregarRadar()
+})
+onMounted(() => {
+  carregarOpcoes()
+  intervaloAtualizacao = window.setInterval(() => {
+    if (visao.value === 'semanal') atualizarSemanas()
+  }, 60000)
+})
+onUnmounted(() => window.clearInterval(intervaloAtualizacao))
 
 function toggleCategoria(id) {
   const novo = new Set(expandidas.value)
@@ -108,7 +194,12 @@ const linhasVisiveis = computed(() => {
 const quartisPorLinha = computed(() => new Map(
   (dados.value?.linhas ?? []).map((linha) => [
     linha.id_conta,
-    mapaQuartis(linha.valores ?? [], indicesIgnoradosMesAberto(dados.value)),
+    mapaQuartis(
+      linha.valores ?? [],
+      visao.value === 'mensal'
+        ? (dados.value?.periodo_equivalente ? [] : indicesIgnoradosMesAberto(dados.value))
+        : (dados.value?.semana_parcial && !dados.value?.periodo_equivalente ? [5] : []),
+    ),
   ]),
 ))
 
@@ -117,18 +208,77 @@ function estiloLinha(linha, valor, indice) {
     quartisPorLinha.value.get(linha.id_conta),
     valor,
     false,
-    mesEstaAberto(dados.value, indice),
+    visao.value === 'mensal'
+      ? (!dados.value?.periodo_equivalente && mesEstaAberto(dados.value, indice))
+      : (dados.value?.semana_parcial && !dados.value?.periodo_equivalente && indice === 5),
   )
 }
 
-function abrirProdutos(linha) {
+async function carregarRadar() {
+  const sequencia = ++sequenciaRadar
+  const semanal = visao.value === 'semanal'
+  radarDados.value = null
+  radarErro.value = ''
+  radarConflitos.value = []
+  if (!radarAberto.value || !familiaSelecionada.value || (semanal ? !semanaSelecionada.value : !anoSelecionado.value)) {
+    radarLoading.value = false
+    return
+  }
+  radarLoading.value = true
+  try {
+    const params = new URLSearchParams({ raiz_id: String(familiaSelecionada.value), visao: visao.value })
+    if (semanal) params.set('semana_inicio', semanaSelecionada.value)
+    else params.set('ano', String(anoSelecionado.value))
+    const response = await fetch(`${ENDPOINT_OSCILACOES}?${params}`)
+    const payload = await response.json().catch(() => ({}))
+    if (sequencia !== sequenciaRadar) return
+    if (!response.ok) {
+      radarConflitos.value = payload.produtos_conflitantes ?? []
+      throw new Error(payload.detail || `Erro ${response.status}`)
+    }
+    radarDados.value = payload
+  } catch (e) {
+    if (sequencia === sequenciaRadar) radarErro.value = e?.message || 'Falha ao carregar as oscilações.'
+  } finally {
+    if (sequencia === sequenciaRadar) radarLoading.value = false
+  }
+}
+
+function alternarRadar() {
+  radarAberto.value = !radarAberto.value
+  if (radarAberto.value) carregarRadar()
+  else {
+    sequenciaRadar += 1
+    radarLoading.value = false
+    radarDados.value = null
+  }
+}
+
+function atualizarAnalise() {
+  if (visao.value === 'semanal') atualizarSemanas(true)
+  else {
+    carregarRelatorio()
+    if (radarAberto.value) carregarRadar()
+  }
+}
+
+function abrirProdutos(linha, peloRadar = false) {
+  const semanal = visao.value === 'semanal'
   const destino = router.resolve({
     name: 'analise-categorias-produtos-vendas',
-    query: {
+    query: semanal ? {
+      visao: 'semanal',
+      raiz_id: familiaSelecionada.value,
+      categoria_id: linha.id_conta,
+      semana_inicio: semanaSelecionada.value,
+      metrica: peloRadar ? 'valor' : metrica.value,
+      periodo_equivalente: (peloRadar ? radarDados.value?.previa : equivalenteSemanal.value) ? '1' : '0',
+    } : {
       raiz_id: familiaSelecionada.value,
       categoria_id: linha.id_conta,
       ano: anoSelecionado.value,
-      metrica: metrica.value,
+      metrica: peloRadar ? 'valor' : metrica.value,
+      periodo_equivalente: (peloRadar ? radarDados.value?.previa : equivalenteMensal.value) ? '1' : '0',
     },
   })
   const novaAba = window.open(destino.href, '_blank', 'noopener,noreferrer')
@@ -138,42 +288,153 @@ function abrirProdutos(linha) {
 
 <template>
   <div class="flex flex-col gap-5">
-    <div>
-      <h1 class="text-xl font-bold text-gray-900">Vendas por Categoria</h1>
-      <p class="mt-0.5 text-sm text-gray-400">Receita bruta ou quantidade vendida pela hierarquia do plano de contas.</p>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">Vendas por Categoria</h1>
+        <p class="mt-0.5 text-sm text-gray-400">Receita bruta ou quantidade vendida pela hierarquia do plano de contas.</p>
+      </div>
+      <button type="button" class="flex h-[34px] items-center gap-1.5 rounded-md border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50" :class="radarAberto ? 'border-[#373435] bg-[#373435] text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100'" :disabled="!familiaSelecionada || (visao === 'semanal' ? !semanaSelecionada : !anoSelecionado)" :aria-expanded="radarAberto" aria-controls="radar-oscilacoes" @click="alternarRadar">
+        <TrendingUp class="h-3.5 w-3.5" /> Oscilações relevantes
+      </button>
     </div>
 
     <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-      <div class="flex flex-wrap items-end gap-3 border-b border-gray-100 bg-gray-50/70 px-4 py-3">
-        <label class="flex min-w-[260px] flex-1 flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+      <div class="flex flex-col gap-3 border-b border-gray-100 bg-gray-50/70 px-4 py-3 sm:flex-row sm:items-end">
+        <span class="w-24 shrink-0 self-start pt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 sm:pb-2">Dados</span>
+        <label class="flex min-w-0 w-full max-w-md flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 sm:min-w-[260px]">
           Família do plano de contas
-          <select v-model="familiaSelecionada" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium normal-case text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || !anos.length">
+          <select v-model="familiaSelecionada" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium normal-case text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || (!anos.length && !semanas.length)">
             <option value="">Selecione uma família</option>
             <option v-for="familia in familias" :key="familia.id_conta" :value="familia.id_conta">
               {{ familia.codigo_hierarquico }} {{ familia.nome_conta }}
             </option>
           </select>
         </label>
+      </div>
 
-        <label class="flex w-28 flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-          Ano
-          <select v-model="anoSelecionado" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || !anos.length">
-            <option v-for="ano in anos" :key="ano" :value="ano">{{ ano }}</option>
-          </select>
-        </label>
+      <div class="grid gap-3 border-b border-gray-100 bg-gray-50/70 px-4 py-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-0">
+        <div class="min-w-0 xl:pr-4" role="group" aria-label="Período">
+          <span class="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Período</span>
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Visão</span>
+              <div class="flex h-[34px] overflow-hidden rounded-md border border-gray-200 text-xs font-semibold">
+                <button type="button" class="px-3 transition-colors" :class="visao === 'mensal' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="visao = 'mensal'">Mensal</button>
+                <button type="button" class="border-l border-gray-200 px-3 transition-colors" :class="visao === 'semanal' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="visao = 'semanal'">Semanal</button>
+              </div>
+            </div>
 
-        <div class="flex flex-col gap-1">
-          <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Métrica</span>
-          <div class="flex h-[34px] overflow-hidden rounded-md border border-gray-200 text-xs font-semibold">
-            <button type="button" class="px-3 transition-colors" :class="metrica === 'valor' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="metrica = 'valor'">Valores financeiros</button>
-            <button type="button" class="border-l border-gray-200 px-3 transition-colors" :class="metrica === 'quantidade' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="metrica = 'quantidade'">Quantidades</button>
+            <label v-if="visao === 'mensal'" class="flex w-28 flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              Ano
+              <select v-model="anoSelecionado" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || !anos.length">
+                <option v-for="ano in anos" :key="ano" :value="ano">{{ ano }}</option>
+              </select>
+            </label>
+
+            <label v-else class="flex min-w-[230px] flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              Semana de referência
+              <select v-model="semanaSelecionada" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium normal-case text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || !semanas.length">
+                <option v-for="semana in semanas" :key="semana" :value="semana">{{ rotuloSemana(semana) }}</option>
+              </select>
+            </label>
+
+            <label v-if="visao === 'semanal' || (visao === 'mensal' && dados?.mes_aberto)" class="flex h-[34px] cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600">
+              <input v-if="visao === 'semanal'" v-model="equivalenteSemanal" type="checkbox" class="accent-[#373435]" />
+              <input v-else v-model="equivalenteMensal" type="checkbox" class="accent-[#373435]" />
+              Períodos equivalentes
+            </label>
+          </div>
+        </div>
+
+        <div class="min-w-0 border-t border-gray-200 pt-3 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0" role="group" aria-label="Leitura">
+          <span class="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Leitura</span>
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Métrica</span>
+              <div class="flex h-[34px] overflow-hidden rounded-md border border-gray-200 text-xs font-semibold">
+                <button type="button" class="px-3 transition-colors" :class="metrica === 'valor' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="metrica = 'valor'">Valores financeiros</button>
+                <button type="button" class="border-l border-gray-200 px-3 transition-colors" :class="metrica === 'quantidade' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="metrica = 'quantidade'">Quantidades</button>
+              </div>
+            </div>
+
+            <button type="button" class="flex h-[34px] items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:bg-gray-100" @click="atualizarAnalise">
+              <RefreshCw class="h-3.5 w-3.5" /> Atualizar
+            </button>
           </div>
         </div>
       </div>
 
+      <section v-if="radarAberto" id="radar-oscilacoes" class="border-b border-gray-200 bg-slate-50/80 px-4 py-4" aria-label="Radar de oscilações relevantes">
+        <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 class="text-sm font-bold text-gray-800">Oscilações relevantes</h2>
+            <p class="mt-0.5 text-xs text-gray-500">Categorias folha desta família · análise sempre em R$ · índice mínimo {{ radarDados?.limite_indice ?? '15' }}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" class="rounded-md border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-gray-100" title="Atualizar radar" aria-label="Atualizar radar" @click="carregarRadar"><RefreshCw class="h-4 w-4" /></button>
+            <button type="button" class="rounded-md border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-gray-100" title="Fechar radar" aria-label="Fechar radar" @click="alternarRadar"><X class="h-4 w-4" /></button>
+          </div>
+        </div>
+        <div v-if="radarLoading" class="rounded-lg border border-gray-200 bg-white px-4 py-5 text-center text-xs text-gray-500" role="status">Calculando oscilações nos snapshots...</div>
+        <div v-else-if="radarErro" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700" role="alert">
+          <p class="font-semibold">{{ radarErro }}</p>
+          <ul v-if="radarConflitos.length" class="mt-2 list-disc pl-5">
+            <li v-for="produto in radarConflitos.slice(0, 10)" :key="produto.id_produto">{{ produto.id_produto }} — {{ produto.produto }}</li>
+            <li v-if="radarConflitos.length > 10">E mais {{ radarConflitos.length - 10 }} produto(s).</li>
+          </ul>
+        </div>
+        <template v-else-if="radarDados">
+          <div class="mb-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+            <span class="font-semibold text-gray-800">{{ radarDados.visao === 'semanal' ? 'Semana' : 'Mês' }} foco:</span>
+            {{ dataCurta(radarDados.periodo_foco.inicio) }} a {{ dataCurta(radarDados.periodo_foco.fim) }}
+            <span v-if="radarDados.previa" class="ml-1 font-semibold text-amber-700">· Prévia até {{ dataCurta(radarDados.periodo_foco.corte) }}; todos os períodos cortados no mesmo dia.</span>
+            <span class="ml-1">· Última venda: {{ dataCurta(radarDados.ultima_data_disponivel) }}</span>
+            <span v-if="radarDados.atualizado_em" class="ml-1">· Snapshots atualizados em {{ new Date(radarDados.atualizado_em).toLocaleString('pt-BR') }}</span>
+            <p class="mt-1 text-gray-500">Médias equivalentes a 30 dias: {{ dataCurta(radarDados.janela_referencia.inicio) }}–{{ dataCurta(radarDados.janela_referencia.fim) }} ({{ radarDados.janela_referencia.periodos }} períodos) versus {{ dataCurta(radarDados.janela_recente.inicio) }}–{{ dataCurta(radarDados.janela_recente.fim) }} ({{ radarDados.janela_recente.periodos }} períodos). O índice prioriza a triagem; não indica a causa da mudança.</p>
+          </div>
+          <div v-if="!radarDados.disponivel" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800" role="status">
+            <p class="font-semibold">{{ radarDados.motivo === 'HISTORICO_INCOMPLETO' ? 'Histórico insuficiente para o radar.' : 'Há períodos aguardando atualização.' }}</p>
+            <p class="mt-1">São necessários snapshots prontos para toda a janela. Períodos pendentes: {{ radarDados.periodos_pendentes.slice(0, 5).map(periodo => `${dataCurta(periodo.inicio)} (${periodo.status})`).join(', ') }}<span v-if="radarDados.periodos_pendentes.length > 5"> e mais {{ radarDados.periodos_pendentes.length - 5 }}</span>.</p>
+          </div>
+          <div v-else class="grid gap-3 xl:grid-cols-2">
+            <div v-for="grupo in [{ chave: 'quedas', titulo: 'Quedas', icone: TrendingDown, cor: 'text-red-700' }, { chave: 'crescimentos', titulo: 'Crescimentos', icone: TrendingUp, cor: 'text-emerald-700' }]" :key="grupo.chave" class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <div class="flex items-center gap-2 border-b border-gray-100 px-3 py-2" :class="grupo.cor">
+                <component :is="grupo.icone" class="h-4 w-4" />
+                <h3 class="text-xs font-bold">{{ grupo.titulo }} ({{ radarDados[grupo.chave].length }})</h3>
+              </div>
+              <p v-if="!radarDados[grupo.chave].length" class="px-3 py-5 text-xs text-gray-500">Nenhuma categoria ultrapassou o índice mínimo neste recorte.</p>
+              <ul v-else class="max-h-[440px] divide-y divide-gray-100 overflow-y-auto">
+                <li v-for="linha in radarDados[grupo.chave]" :key="linha.id_conta" class="px-3 py-2.5">
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono text-[10px] text-gray-400">{{ linha.codigo_hierarquico }}</span>
+                    <span class="min-w-0 flex-1 truncate text-xs font-semibold text-gray-800" :title="linha.nome_conta">{{ linha.nome_conta }}</span>
+                    <span class="text-[10px] font-bold" :class="grupo.cor">Índice {{ formatarValor(linha.indice, 1) }}</span>
+                    <button type="button" class="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800" :aria-label="`Detalhar produtos de ${linha.nome_conta}`" title="Abrir produtos em nova aba" @click="abrirProdutos(linha, true)"><ExternalLink class="h-3.5 w-3.5" /></button>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-600">
+                    <span>Referência: R$ {{ formatarValor(linha.media_referencia, 2) }}</span>
+                    <span>Recente: R$ {{ formatarValor(linha.media_recente, 2) }}</span>
+                    <span class="font-semibold" :class="grupo.cor">Diferença: {{ Number(linha.diferenca) > 0 ? '+' : '−' }}R$ {{ formatarValor(Math.abs(Number(linha.diferenca)), 2) }} ({{ formatarVariacao(linha.percentual) }})</span>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </template>
+      </section>
+
       <div v-if="dados?.desatualizado" class="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
         <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
         <span>Existem períodos aguardando atualização. Os últimos valores válidos continuam visíveis.</span>
+      </div>
+
+      <div v-if="visao === 'semanal' && dados" class="border-b border-gray-100 bg-gray-50/60 px-4 py-2 text-xs text-gray-600">
+        Última venda carregada: {{ dataCurta(dados.ultima_data_disponivel) }} · Snapshot: {{ new Date(dados.atualizado_em).toLocaleString('pt-BR') }} · Média longa: {{ dados.periodos_considerados_20 }}/20 semanas · Média recente: {{ dados.periodos_considerados_5 }}/5 semanas.
+        <span v-if="dados.semana_parcial && !dados.periodo_equivalente" class="font-semibold text-amber-700">Semana parcial comparada com semanas completas.</span>
+        <span v-else-if="dados.periodo_equivalente" class="font-semibold text-gray-700">Comparação até o mesmo dia da semana.</span>
+      </div>
+      <div v-if="visao === 'mensal' && dados?.periodo_equivalente" class="border-b border-gray-100 bg-gray-50/60 px-4 py-2 text-xs text-gray-600">
+        Meses comparados do dia 1 ao dia {{ dados.dia_corte }}; o total soma apenas os valores exibidos.
       </div>
 
       <div v-if="erro" class="border-b border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700">
@@ -194,7 +455,7 @@ function abrirProdutos(linha) {
         </div>
       </div>
 
-      <div v-else-if="!anos.length && !erro" class="flex flex-col items-center justify-center px-6 py-16 text-center">
+      <div v-else-if="!(visao === 'semanal' ? semanas.length : anos.length) && !erro" class="flex flex-col items-center justify-center px-6 py-16 text-center">
         <div class="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-amber-50">
           <AlertTriangle class="h-5 w-5 text-amber-500" />
         </div>
@@ -210,13 +471,13 @@ function abrirProdutos(linha) {
         <p class="mt-1 text-xs text-gray-400">A estrutura completa do plano será exibida nesta matriz.</p>
       </div>
 
-      <div v-else-if="dados" class="app-scrollbar overflow-x-auto">
+      <div v-else-if="dados && visao === 'mensal'" class="app-scrollbar overflow-x-auto">
         <table class="w-full border-collapse text-xs">
           <thead>
             <tr class="border-b border-gray-100 bg-white">
               <th class="sticky left-0 z-20 min-w-[280px] bg-white px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 shadow-[1px_0_0_#f3f4f6]">Categoria</th>
               <th v-for="(mes, indice) in MESES" :key="mes" class="min-w-[100px] px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" :title="tooltipMesAberto(dados, indice)" :aria-label="tooltipMesAberto(dados, indice) || mes">{{ mes }}</th>
-              <th class="min-w-[120px] bg-gray-50 px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600">Total</th>
+              <th class="min-w-[120px] bg-gray-50 px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600">{{ dados.periodo_equivalente ? 'Total comparável' : 'Total' }}</th>
             </tr>
           </thead>
           <tbody>
@@ -269,6 +530,74 @@ function abrirProdutos(linha) {
                     </div>
                   </div>
                   <span v-else class="text-gray-300">0</span>
+                </td>
+              </template>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-else-if="dados && visao === 'semanal'" class="app-scrollbar overflow-x-auto">
+        <table class="w-full border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-gray-100 bg-white">
+              <th class="sticky left-0 z-20 min-w-[280px] bg-white px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 shadow-[1px_0_0_#f3f4f6]">Categoria</th>
+              <th class="min-w-[125px] bg-gray-50 px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600">Média 20 semanas</th>
+              <th v-for="(periodo, indice) in dados.semanas" :key="periodo.inicio" class="min-w-[120px] px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider" :class="indice === 5 ? 'bg-gray-50 text-[#373435]' : 'text-gray-400'" :title="`${rotuloSemana(periodo.inicio)}${periodo.data_corte ? ` · até ${dataCurta(periodo.data_corte)}` : ''}`">
+                <span v-if="indice === 5" class="block">Semana foco</span>
+                {{ dataCurta(periodo.inicio).slice(0, 5) }}–{{ dataCurta(periodo.fim).slice(0, 5) }}
+              </th>
+              <th class="min-w-[170px] bg-gray-50 px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600" title="Histórica: média das últimas 5 semanas contra a média de 20. Recente: semana foco contra a média das últimas 5.">Variações<span class="block font-normal normal-case">Histórica / recente</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="linha in linhasVisiveis" :key="linha.id_conta" class="border-b border-gray-50 last:border-0 hover:bg-gray-50/70" :class="linha.nivel === 0 ? 'bg-gray-50/50 font-bold' : ''">
+              <td class="sticky left-0 z-10 bg-white px-4 py-2.5 shadow-[1px_0_0_#f3f4f6]" :class="linha.nivel === 0 ? '!bg-gray-50' : ''">
+                <div class="flex items-center" :style="{ paddingLeft: `${linha.nivel * 18}px` }">
+                  <button v-if="linha.tem_filhos" type="button" class="mr-1 flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700" :aria-label="`${expandidas.has(linha.id_conta) ? 'Recolher' : 'Expandir'} ${linha.nome_conta}`" @click="toggleCategoria(linha.id_conta)">
+                    <ChevronDown v-if="expandidas.has(linha.id_conta)" class="h-3.5 w-3.5" />
+                    <ChevronRight v-else class="h-3.5 w-3.5" />
+                  </button>
+                  <span v-else class="mr-1 inline-block h-5 w-5" />
+                  <span class="mr-2 font-mono text-[10px] text-gray-400">{{ linha.codigo_hierarquico }}</span>
+                  <span class="text-gray-700" :class="linha.tem_filhos ? 'font-semibold' : 'font-medium'">{{ linha.nome_conta }}</span>
+                  <button
+                    v-if="!linha.tem_filhos"
+                    type="button"
+                    class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700"
+                    title="Abrir vendas semanais por produto em uma nova aba"
+                    :aria-label="`Detalhar produtos de ${linha.nome_conta}`"
+                    @click.stop="abrirProdutos(linha)"
+                  >
+                    <ExternalLink class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </td>
+              <template v-if="metrica === 'valor'">
+                <td class="bg-gray-50 px-3 py-2.5 text-right font-mono tabular-nums text-gray-700">{{ formatarValor(linha.media_20) }}</td>
+                <td v-for="(valor, indice) in linha.valores" :key="indice" class="px-3 py-2.5 text-right font-mono tabular-nums text-gray-700" :class="indice === 5 ? 'font-semibold' : ''" :style="estiloLinha(linha, valor, indice)">{{ formatarValor(valor) }}</td>
+                <td class="bg-gray-50 px-3 py-2 text-right font-mono tabular-nums" :title="`Média 20: ${formatarValor(linha.media_20)} · Média 5: ${formatarValor(linha.media_5)}`">
+                  <div class="text-[9px] font-semibold text-gray-500">Histórica · média 5 vs 20</div>
+                  <div class="text-sm font-bold" :class="corVariacao(linha.variacao_5_vs_20_percentual)">{{ formatarVariacao(linha.variacao_5_vs_20_percentual) }}</div>
+                  <div class="mt-1 border-t border-gray-200 pt-1 text-[10px] font-medium" :class="corVariacao(linha.variacao_5_percentual)">Recente · foco vs 5: {{ formatarVariacao(linha.variacao_5_percentual) }}</div>
+                </td>
+              </template>
+              <template v-else>
+                <td class="bg-gray-50 px-3 py-2.5 text-right align-top font-mono tabular-nums text-gray-700">
+                  <div v-for="unidade in linha.unidades" :key="unidade.id_unidade">{{ formatarQuantidade(unidade.media_20) }} <span class="text-[9px] text-gray-400">{{ unidade.sigla }}</span></div>
+                  <span v-if="!linha.unidades.length" class="text-gray-300">-</span>
+                </td>
+                <td v-for="indice in 6" :key="indice" class="px-3 py-2.5 text-right align-top font-mono tabular-nums text-gray-700">
+                  <div v-for="unidade in linha.unidades" :key="unidade.id_unidade">{{ formatarQuantidade(unidade.valores[indice - 1]) }} <span class="text-[9px] text-gray-400">{{ unidade.sigla }}</span></div>
+                  <span v-if="!linha.unidades.length" class="text-gray-300">-</span>
+                </td>
+                <td class="bg-gray-50 px-3 py-2 text-right align-top font-mono tabular-nums">
+                  <div v-for="unidade in linha.unidades" :key="unidade.id_unidade" class="border-b border-gray-200 py-1 last:border-0" :title="`Média 20: ${formatarQuantidade(unidade.media_20)} ${unidade.sigla} · Média 5: ${formatarQuantidade(unidade.media_5)} ${unidade.sigla}`">
+                    <div class="text-[9px] font-semibold text-gray-500">{{ unidade.sigla }} · histórica</div>
+                    <div class="text-sm font-bold" :class="corVariacao(unidade.variacao_5_vs_20_percentual)">{{ formatarVariacao(unidade.variacao_5_vs_20_percentual) }}</div>
+                    <div class="text-[10px] font-medium" :class="corVariacao(unidade.variacao_5_percentual)">Recente: {{ formatarVariacao(unidade.variacao_5_percentual) }}</div>
+                  </div>
+                  <span v-if="!linha.unidades.length" class="text-gray-300">-</span>
                 </td>
               </template>
             </tr>

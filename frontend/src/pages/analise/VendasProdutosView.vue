@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertTriangle, PackageSearch, Search } from 'lucide-vue-next'
+import { AlertTriangle, PackageSearch, RefreshCw, Search } from 'lucide-vue-next'
 import RemoteSearchSelect from '@/components/ui/RemoteSearchSelect.vue'
 import { getApiBaseUrl } from '@/services/firebirdSync'
 import {
@@ -18,13 +18,21 @@ import {
 
 const API_BASE_URL = getApiBaseUrl()
 const ENDPOINT = `${API_BASE_URL}/api/analise/categorias/produtos/vendas/`
+const ENDPOINT_SEMANAL = `${ENDPOINT}semanal/`
 const METADATA_ENDPOINT = `${API_BASE_URL}/api/analise/categorias/vendas/`
+const METADATA_SEMANAL_ENDPOINT = `${METADATA_ENDPOINT}semanal/`
 const CATEGORIAS_ENDPOINT = `${API_BASE_URL}/api/cadastros/plano-contas/opcoes`
 const route = useRoute()
 const router = useRouter()
 
 const familias = ref([])
 const anos = ref([])
+const semanas = ref([])
+const visao = ref(route.query.visao === 'semanal' ? 'semanal' : 'mensal')
+const semanaSelecionada = ref(String(route.query.semana_inicio || ''))
+const equivalenteSemanal = ref(!['0', 'false'].includes(String(route.query.periodo_equivalente || '1').toLowerCase()))
+const equivalenteMensal = ref(visao.value === 'mensal' && ['1', 'true'].includes(String(route.query.periodo_equivalente || '').toLowerCase()))
+const ultimaAtualizacaoSemanal = ref(null)
 const familiaSelecionada = ref(String(route.query.raiz_id || ''))
 const categoriaSelecionada = ref(String(route.query.categoria_id || route.query.raiz_id || ''))
 const anoSelecionado = ref(Number(route.query.ano) || null)
@@ -41,6 +49,32 @@ const pronto = ref(false)
 
 let debounceBusca = null
 let requisicaoAtual = null
+let intervaloAtualizacao = null
+
+function dataCurta(valor) {
+  if (!valor) return ''
+  const [ano, mes, dia] = valor.split('-')
+  return `${dia}/${mes}/${ano}`
+}
+
+function rotuloSemana(inicio) {
+  const fim = new Date(`${inicio}T12:00:00`)
+  fim.setDate(fim.getDate() + 6)
+  const fimIso = `${fim.getFullYear()}-${String(fim.getMonth() + 1).padStart(2, '0')}-${String(fim.getDate()).padStart(2, '0')}`
+  return `${dataCurta(inicio)} a ${dataCurta(fimIso)}`
+}
+
+function formatarVariacao(valor) {
+  if (valor === null || valor === undefined) return '—'
+  const numero = Number(valor)
+  if (!Number.isFinite(numero)) return '—'
+  return `${numero > 0 ? '+' : ''}${numero.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+}
+
+function corVariacao(valor) {
+  if (valor === null || valor === undefined) return 'text-gray-400'
+  return Number(valor) >= 0 ? 'text-[#2f6f4f]' : 'text-[#a82631]'
+}
 
 const categoriaControle = computed({
   get() {
@@ -61,7 +95,7 @@ const categoriaLabel = computed(() => {
 const quartisPorProduto = computed(() => new Map(
   (dados.value?.linhas ?? []).map((linha) => [
     linha.id_produto,
-    mapaQuartis(linha.valores ?? [], indicesIgnoradosMesAberto(dados.value)),
+    mapaQuartis(linha.valores ?? [], dados.value?.periodo_equivalente ? [] : indicesIgnoradosMesAberto(dados.value)),
   ]),
 ))
 
@@ -85,7 +119,7 @@ function estiloLinha(linha, valor, indice) {
     quartisPorProduto.value.get(linha.id_produto),
     valor,
     false,
-    mesEstaAberto(dados.value, indice),
+    !dados.value?.periodo_equivalente && mesEstaAberto(dados.value, indice),
   )
 }
 
@@ -97,7 +131,14 @@ function sincronizarUrl() {
   const query = {}
   if (familiaSelecionada.value) query.raiz_id = familiaSelecionada.value
   if (categoriaSelecionada.value) query.categoria_id = categoriaSelecionada.value
-  if (anoSelecionado.value) query.ano = String(anoSelecionado.value)
+  if (visao.value === 'semanal') {
+    query.visao = 'semanal'
+    if (semanaSelecionada.value) query.semana_inicio = semanaSelecionada.value
+    query.periodo_equivalente = equivalenteSemanal.value ? '1' : '0'
+  } else {
+    if (anoSelecionado.value) query.ano = String(anoSelecionado.value)
+    if (equivalenteMensal.value) query.periodo_equivalente = '1'
+  }
   query.metrica = metrica.value
   if (incluirInativos.value) query.incluir_inativos = '1'
   if (buscaAplicada.value) query.search = buscaAplicada.value
@@ -109,9 +150,10 @@ async function carregarOpcoes() {
   loadingInicial.value = true
   erro.value = ''
   try {
-    const [resFamilias, resMetadata] = await Promise.all([
+    const [resFamilias, resMetadata, resSemanas] = await Promise.all([
       fetch(`${API_BASE_URL}/api/cadastros/plano-contas/raizes`),
       fetch(METADATA_ENDPOINT),
+      fetch(METADATA_SEMANAL_ENDPOINT).catch(() => null),
     ])
     if (!resFamilias.ok || !resMetadata.ok) throw new Error('Não foi possível carregar as opções da análise.')
 
@@ -119,6 +161,14 @@ async function carregarOpcoes() {
     const metadata = await resMetadata.json()
     anos.value = metadata.anos_disponiveis ?? []
     if (!anos.value.includes(anoSelecionado.value)) anoSelecionado.value = anos.value[0] ?? null
+    if (resSemanas?.ok) {
+      const metadataSemanal = await resSemanas.json()
+      semanas.value = metadataSemanal.semanas_disponiveis ?? []
+      if (!semanas.value.includes(semanaSelecionada.value)) semanaSelecionada.value = metadataSemanal.semana_inicial ?? semanas.value[0] ?? ''
+      ultimaAtualizacaoSemanal.value = metadataSemanal.atualizado_em
+    } else if (visao.value === 'semanal') {
+      throw new Error('Não foi possível carregar as semanas disponíveis.')
+    }
 
     const familiaExiste = familias.value.some(
       (familia) => String(familia.id_conta) === String(familiaSelecionada.value),
@@ -139,7 +189,8 @@ async function carregarOpcoes() {
 }
 
 async function carregarRelatorio() {
-  if (!pronto.value || !familiaSelecionada.value || !categoriaSelecionada.value || !anoSelecionado.value) {
+  const semanal = visao.value === 'semanal'
+  if (!pronto.value || !familiaSelecionada.value || !categoriaSelecionada.value || (semanal ? !semanaSelecionada.value : !anoSelecionado.value)) {
     dados.value = null
     sincronizarUrl()
     return
@@ -154,16 +205,22 @@ async function carregarRelatorio() {
 
   try {
     const params = new URLSearchParams({
-      ano: String(anoSelecionado.value),
       raiz_id: String(familiaSelecionada.value),
       categoria_id: String(categoriaSelecionada.value),
       metrica: metrica.value,
       incluir_inativos: incluirInativos.value ? '1' : '0',
       page: String(pagina.value),
     })
+    if (semanal) {
+      params.set('semana_inicio', semanaSelecionada.value)
+      params.set('periodo_equivalente', equivalenteSemanal.value ? '1' : '0')
+    } else {
+      params.set('ano', String(anoSelecionado.value))
+      if (equivalenteMensal.value) params.set('periodo_equivalente', '1')
+    }
     if (buscaAplicada.value) params.set('search', buscaAplicada.value)
 
-    const response = await fetch(`${ENDPOINT}?${params}`, { signal: requisicao.signal })
+    const response = await fetch(`${semanal ? ENDPOINT_SEMANAL : ENDPOINT}?${params}`, { signal: requisicao.signal })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(payload.detail || `Erro ${response.status}`)
 
@@ -181,6 +238,28 @@ async function carregarRelatorio() {
   }
 }
 
+async function atualizarSemanas(forcar = false) {
+  try {
+    const response = await fetch(METADATA_SEMANAL_ENDPOINT)
+    if (!response.ok) throw new Error('Falha ao verificar atualização semanal.')
+    const metadata = await response.json()
+    const semanaAnterior = semanas.value[0]
+    const mudou = metadata.atualizado_em !== ultimaAtualizacaoSemanal.value
+    semanas.value = metadata.semanas_disponiveis ?? []
+    ultimaAtualizacaoSemanal.value = metadata.atualizado_em
+    if (!semanaSelecionada.value || semanaSelecionada.value === semanaAnterior) {
+      const novaSemana = metadata.semana_inicial ?? semanas.value[0] ?? ''
+      if (novaSemana !== semanaSelecionada.value) {
+        semanaSelecionada.value = novaSemana
+        return
+      }
+    }
+    if ((mudou || forcar) && visao.value === 'semanal') carregarRelatorio()
+  } catch (e) {
+    if (forcar) erro.value = e?.message || 'Falha ao verificar atualização semanal.'
+  }
+}
+
 function irParaPagina(destino) {
   const limite = Math.max(1, paginacao.value.total_paginas)
   pagina.value = Math.min(limite, Math.max(1, destino))
@@ -194,7 +273,7 @@ watch(busca, (valor) => {
 })
 
 watch(
-  [familiaSelecionada, categoriaSelecionada, anoSelecionado, metrica, incluirInativos, buscaAplicada],
+  [familiaSelecionada, categoriaSelecionada, anoSelecionado, semanaSelecionada, visao, equivalenteSemanal, equivalenteMensal, metrica, incluirInativos, buscaAplicada],
   () => {
     if (!pronto.value) return
     if (pagina.value !== 1) pagina.value = 1
@@ -205,10 +284,16 @@ watch(pagina, () => {
   if (pronto.value) carregarRelatorio()
 })
 
-onMounted(carregarOpcoes)
+onMounted(() => {
+  carregarOpcoes()
+  intervaloAtualizacao = window.setInterval(() => {
+    if (visao.value === 'semanal') atualizarSemanas()
+  }, 60000)
+})
 onBeforeUnmount(() => {
   if (debounceBusca) clearTimeout(debounceBusca)
   if (requisicaoAtual) requisicaoAtual.abort()
+  if (intervaloAtualizacao) window.clearInterval(intervaloAtualizacao)
 })
 </script>
 
@@ -216,17 +301,18 @@ onBeforeUnmount(() => {
   <div class="flex flex-col gap-5">
     <div>
       <h1 class="text-xl font-bold text-gray-900">Vendas por Produto</h1>
-      <p class="mt-0.5 text-sm text-gray-400">Detalhamento mensal dos produtos vinculados à categoria selecionada.</p>
+      <p class="mt-0.5 text-sm text-gray-400">Detalhamento dos produtos vinculados à categoria selecionada.</p>
     </div>
 
     <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
       <div class="flex flex-wrap items-end gap-3 border-b border-gray-100 bg-gray-50/70 px-4 py-3">
+        <span class="w-full shrink-0 self-end pb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400 sm:w-24">Dados</span>
         <label class="flex min-w-[220px] flex-1 flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
           Família do plano de contas
           <select
             v-model="familiaSelecionada"
             class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium normal-case text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300"
-            :disabled="loadingInicial || !anos.length"
+            :disabled="loadingInicial || (!anos.length && !semanas.length)"
             @change="trocarFamilia"
           >
             <option value="">Selecione uma família</option>
@@ -255,25 +341,65 @@ onBeforeUnmount(() => {
           />
         </label>
 
-        <label class="flex w-28 flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-          Ano
-          <select v-model="anoSelecionado" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || !anos.length">
-            <option v-for="ano in anos" :key="ano" :value="ano">{{ ano }}</option>
-          </select>
-        </label>
-
-        <div class="flex flex-col gap-1">
-          <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Métrica</span>
-          <div class="flex h-[34px] overflow-hidden rounded-md border border-gray-200 text-xs font-semibold">
-            <button type="button" class="px-3 transition-colors" :class="metrica === 'valor' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="selecionarMetrica('valor')">Valores financeiros</button>
-            <button type="button" class="border-l border-gray-200 px-3 transition-colors" :class="metrica === 'quantidade' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="selecionarMetrica('quantidade')">Quantidades</button>
-          </div>
-        </div>
-
         <label class="flex h-[34px] cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600">
           <input v-model="incluirInativos" type="checkbox" class="h-3.5 w-3.5 rounded border-gray-300 accent-[#373435]" />
           Incluir inativos ({{ dados?.inativos_ocultos ?? 0 }})
         </label>
+      </div>
+
+      <div class="grid gap-3 border-b border-gray-100 bg-gray-50/70 px-4 py-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-0">
+        <div class="min-w-0 xl:pr-4" role="group" aria-label="Período">
+          <span class="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Período</span>
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Visão</span>
+              <div class="flex h-[34px] overflow-hidden rounded-md border border-gray-200 text-xs font-semibold">
+                <button type="button" class="px-3 transition-colors" :class="visao === 'mensal' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="visao = 'mensal'">Mensal</button>
+                <button type="button" class="border-l border-gray-200 px-3 transition-colors" :class="visao === 'semanal' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="visao = 'semanal'">Semanal</button>
+              </div>
+            </div>
+
+            <label v-if="visao === 'mensal'" class="flex w-28 flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              Ano
+              <select v-model="anoSelecionado" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || !anos.length">
+                <option v-for="ano in anos" :key="ano" :value="ano">{{ ano }}</option>
+              </select>
+            </label>
+
+            <label v-else class="flex min-w-[230px] flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              Semana de referência
+              <select v-model="semanaSelecionada" class="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium normal-case text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300" :disabled="loadingInicial || !semanas.length">
+                <option v-for="semana in semanas" :key="semana" :value="semana">{{ rotuloSemana(semana) }}</option>
+              </select>
+            </label>
+
+            <label v-if="visao === 'semanal'" class="flex h-[34px] cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600">
+              <input v-model="equivalenteSemanal" type="checkbox" class="accent-[#373435]" />
+              Períodos equivalentes
+            </label>
+            <label v-if="visao === 'mensal' && dados?.mes_aberto" class="flex h-[34px] cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600">
+              <input v-model="equivalenteMensal" type="checkbox" class="accent-[#373435]" />
+              Períodos equivalentes
+            </label>
+          </div>
+        </div>
+
+        <div class="min-w-0 border-t border-gray-200 pt-3 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0" role="group" aria-label="Leitura">
+          <span class="mb-2 block text-[10px] font-semibold uppercase tracking-wide text-gray-400">Leitura</span>
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="flex flex-col gap-1">
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Métrica</span>
+              <div class="flex h-[34px] overflow-hidden rounded-md border border-gray-200 text-xs font-semibold">
+                <button type="button" class="px-3 transition-colors" :class="metrica === 'valor' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="selecionarMetrica('valor')">Valores financeiros</button>
+                <button type="button" class="border-l border-gray-200 px-3 transition-colors" :class="metrica === 'quantidade' ? 'bg-[#373435] text-white' : 'bg-white text-gray-500 hover:bg-gray-100'" @click="selecionarMetrica('quantidade')">Quantidades</button>
+              </div>
+            </div>
+
+            <button type="button" class="flex h-[34px] items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:bg-gray-100" @click="visao === 'semanal' ? atualizarSemanas(true) : carregarRelatorio()">
+              <RefreshCw class="h-3.5 w-3.5" /> Atualizar
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="flex items-center border-b border-gray-100 px-4 py-2.5">
@@ -287,6 +413,10 @@ onBeforeUnmount(() => {
         <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
         <span>Existem períodos aguardando atualização. Os últimos valores válidos continuam visíveis.</span>
       </div>
+      <div v-if="dados && visao === 'semanal'" class="border-b border-gray-100 px-4 py-2 text-xs text-gray-500">
+        Última venda: {{ dataCurta(dados.ultima_data_disponivel) }} · Atualizado em {{ dados.atualizado_em ? new Date(dados.atualizado_em).toLocaleString('pt-BR') : '—' }} · Média: {{ dados.periodos_considerados_20 }}/20 semanas (últimas cinco: {{ dados.periodos_considerados_5 }}/5).
+        <span v-if="dados.semana_parcial"> Semana foco parcial{{ dados.periodo_equivalente ? '; referências cortadas no mesmo dia da semana.' : '; referências anteriores completas.' }}</span>
+      </div>
 
       <div v-if="erro" class="border-b border-red-100 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700">{{ erro }}</div>
 
@@ -298,7 +428,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-else-if="!anos.length && !erro" class="flex flex-col items-center justify-center px-6 py-16 text-center">
+      <div v-else-if="!(visao === 'semanal' ? semanas.length : anos.length) && !erro" class="flex flex-col items-center justify-center px-6 py-16 text-center">
         <AlertTriangle class="mb-3 h-7 w-7 text-amber-500" />
         <p class="text-sm font-medium text-gray-600">Agregado analítico ainda não construído</p>
       </div>
@@ -316,13 +446,13 @@ onBeforeUnmount(() => {
       </div>
 
       <template v-else-if="dados">
-        <div class="app-scrollbar overflow-x-auto">
+        <div v-if="visao === 'mensal'" class="app-scrollbar overflow-x-auto">
           <table class="w-full border-collapse text-xs">
             <thead>
               <tr class="border-b border-gray-100 bg-white">
                 <th class="sticky left-0 z-20 min-w-[300px] bg-white px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 shadow-[1px_0_0_#f3f4f6]">Produto</th>
                 <th v-for="(mes, indice) in MESES" :key="mes" class="min-w-[100px] px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" :title="tooltipMesAberto(dados, indice)" :aria-label="tooltipMesAberto(dados, indice) || mes">{{ mes }}</th>
-                <th class="min-w-[120px] bg-gray-50 px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600">Total</th>
+                <th class="min-w-[120px] bg-gray-50 px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600">{{ dados.periodo_equivalente ? 'Total comparável' : 'Total' }}</th>
               </tr>
             </thead>
             <tbody>
@@ -361,6 +491,60 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
                     <span v-else class="text-gray-300">-</span>
+                  </td>
+                </template>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-else class="app-scrollbar overflow-x-auto">
+          <table class="w-full border-collapse text-xs">
+            <thead>
+              <tr class="border-b border-gray-100 bg-white">
+                <th class="sticky left-0 z-20 min-w-[300px] bg-white px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 shadow-[1px_0_0_#f3f4f6]">Produto</th>
+                <th class="min-w-[125px] bg-gray-50 px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600">Média 20 semanas</th>
+                <th v-for="(periodo, indice) in dados.semanas" :key="periodo.inicio" class="min-w-[120px] px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider" :class="indice === 5 ? 'bg-gray-50 text-[#373435]' : 'text-gray-400'" :title="`${rotuloSemana(periodo.inicio)}${periodo.data_corte ? ` · até ${dataCurta(periodo.data_corte)}` : ''}`">
+                  <span v-if="indice === 5" class="block">Semana foco</span>
+                  {{ dataCurta(periodo.inicio).slice(0, 5) }}–{{ dataCurta(periodo.fim).slice(0, 5) }}
+                </th>
+                <th class="min-w-[170px] bg-gray-50 px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-600" title="Histórica: média das últimas 5 semanas contra a média de 20. Recente: semana foco contra a média das últimas 5.">Variações<span class="block font-normal normal-case">Histórica / recente</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="linha in dados.linhas" :key="linha.id_produto" class="border-b border-gray-50 last:border-0 hover:bg-gray-50/70">
+                <td class="sticky left-0 z-10 bg-white px-4 py-2.5 shadow-[1px_0_0_#f3f4f6]">
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono text-[10px] text-gray-400">{{ linha.id_produto }}</span>
+                    <span class="font-medium text-gray-700">{{ linha.nome_produto }}</span>
+                    <span v-if="statusInativo(linha.status)" class="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">Inativo</span>
+                  </div>
+                </td>
+                <template v-if="metrica === 'valor'">
+                  <td class="bg-gray-50 px-3 py-2.5 text-right font-mono tabular-nums text-gray-700">{{ formatarValor(linha.media_20) }}</td>
+                  <td v-for="(valor, indice) in linha.valores" :key="indice" class="px-3 py-2.5 text-right font-mono tabular-nums text-gray-700" :class="indice === 5 ? 'font-semibold' : ''">{{ formatarValor(valor) }}</td>
+                  <td class="bg-gray-50 px-3 py-2 text-right font-mono tabular-nums" :title="`Média 20: ${formatarValor(linha.media_20)} · Média 5: ${formatarValor(linha.media_5)}`">
+                    <div class="text-[9px] font-semibold text-gray-500">Histórica · média 5 vs 20</div>
+                    <div class="text-sm font-bold" :class="corVariacao(linha.variacao_5_vs_20_percentual)">{{ formatarVariacao(linha.variacao_5_vs_20_percentual) }}</div>
+                    <div class="mt-1 border-t border-gray-200 pt-1 text-[10px] font-medium" :class="corVariacao(linha.variacao_5_percentual)">Recente · foco vs 5: {{ formatarVariacao(linha.variacao_5_percentual) }}</div>
+                  </td>
+                </template>
+                <template v-else>
+                  <td class="bg-gray-50 px-3 py-2.5 text-right align-top font-mono tabular-nums text-gray-700">
+                    <div v-for="unidade in linha.unidades" :key="unidade.id_unidade">{{ formatarQuantidade(unidade.media_20) }} <span class="text-[9px] text-gray-400">{{ unidade.sigla }}</span></div>
+                    <span v-if="!linha.unidades.length" class="text-gray-300">-</span>
+                  </td>
+                  <td v-for="indice in 6" :key="indice" class="px-3 py-2.5 text-right align-top font-mono tabular-nums text-gray-700">
+                    <div v-for="unidade in linha.unidades" :key="unidade.id_unidade">{{ formatarQuantidade(unidade.valores[indice - 1]) }} <span class="text-[9px] text-gray-400">{{ unidade.sigla }}</span></div>
+                    <span v-if="!linha.unidades.length" class="text-gray-300">-</span>
+                  </td>
+                  <td class="bg-gray-50 px-3 py-2 text-right align-top font-mono tabular-nums">
+                    <div v-for="unidade in linha.unidades" :key="unidade.id_unidade" class="border-b border-gray-200 py-1 last:border-0" :title="`Média 20: ${formatarQuantidade(unidade.media_20)} ${unidade.sigla} · Média 5: ${formatarQuantidade(unidade.media_5)} ${unidade.sigla}`">
+                      <div class="text-[9px] font-semibold text-gray-500">{{ unidade.sigla }} · histórica</div>
+                      <div class="text-sm font-bold" :class="corVariacao(unidade.variacao_5_vs_20_percentual)">{{ formatarVariacao(unidade.variacao_5_vs_20_percentual) }}</div>
+                      <div class="text-[10px] font-medium" :class="corVariacao(unidade.variacao_5_percentual)">Recente: {{ formatarVariacao(unidade.variacao_5_percentual) }}</div>
+                    </div>
+                    <span v-if="!linha.unidades.length" class="text-gray-300">-</span>
                   </td>
                 </template>
               </tr>

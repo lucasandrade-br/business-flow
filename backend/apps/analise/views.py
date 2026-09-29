@@ -18,9 +18,11 @@ from .models import (
     MovimentoCompraProdutoMensal,
     MovimentoDiario,
     MovimentoProdutoMensal,
+    MovimentoProdutoSemanal,
 )
 from .services import (
     CategoriasAmbiguasError,
+    AgregadoDiarioIncompletoError,
     detectar_mes_aberto,
     montar_analise_compras_categorias,
     montar_analise_compras_produtos,
@@ -29,6 +31,8 @@ from .services import (
     status_agregados_compras,
     status_agregados_vendas,
 )
+from .services_vendas_semanais import montar_analise_vendas_categorias_semanal, montar_analise_vendas_produtos_semanal, status_agregados_vendas_semanais
+from .services_oscilacoes import montar_radar_oscilacoes
 
 _DIAS_LABELS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"]
 
@@ -56,7 +60,8 @@ def vendas_por_categorias(request):
         return JsonResponse({"detail": "Metrica invalida. Use 'valor' ou 'quantidade'."}, status=400)
 
     try:
-        payload = montar_analise_vendas_categorias(ano=ano, raiz_id=raiz_id, metrica=metrica)
+        periodo_equivalente = str(request.GET.get("periodo_equivalente") or "").strip().lower() in {"1", "true", "on", "sim", "yes"}
+        payload = montar_analise_vendas_categorias(ano=ano, raiz_id=raiz_id, metrica=metrica, periodo_equivalente=periodo_equivalente)
     except CategoriasAmbiguasError as exc:
         return JsonResponse(
             {
@@ -65,11 +70,79 @@ def vendas_por_categorias(request):
             },
             status=409,
         )
+    except AgregadoDiarioIncompletoError as exc:
+        return JsonResponse({"detail": str(exc)}, status=503)
     except MovimentoProdutoMensal.DoesNotExist:
         return JsonResponse({"detail": "Ano sem dados analiticos disponiveis."}, status=404)
     except PlanoConta.DoesNotExist:
         return JsonResponse({"detail": "Familia raiz nao encontrada."}, status=404)
 
+    return JsonResponse(payload)
+
+
+@require_GET
+def vendas_por_categorias_semanal(request):
+    if not request.GET:
+        return JsonResponse(status_agregados_vendas_semanais())
+    raiz_raw = request.GET.get("raiz_id")
+    semana_raw = request.GET.get("semana_inicio")
+    metrica = str(request.GET.get("metrica") or "").strip().lower()
+    if not raiz_raw or not semana_raw or not metrica:
+        return JsonResponse({"detail": "Informe 'raiz_id', 'semana_inicio' e 'metrica'."}, status=400)
+    try:
+        raiz_id = int(raiz_raw)
+        semana_inicio = date.fromisoformat(semana_raw)
+    except (TypeError, ValueError):
+        return JsonResponse({"detail": "Familia ou semana invalida."}, status=400)
+    if metrica not in {"valor", "quantidade"}:
+        return JsonResponse({"detail": "Metrica invalida. Use 'valor' ou 'quantidade'."}, status=400)
+    equivalente = str(request.GET.get("periodo_equivalente", "1")).strip().lower() in {"1", "true", "on", "sim", "yes"}
+    try:
+        payload = montar_analise_vendas_categorias_semanal(
+            raiz_id=raiz_id, semana_inicio=semana_inicio,
+            metrica=metrica, periodo_equivalente=equivalente,
+        )
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
+    except MovimentoProdutoSemanal.DoesNotExist:
+        return JsonResponse({"detail": "Semana sem agregado analitico disponivel."}, status=404)
+    except PlanoConta.DoesNotExist:
+        return JsonResponse({"detail": "Familia raiz nao encontrada."}, status=404)
+    except CategoriasAmbiguasError as exc:
+        return JsonResponse({
+            "detail": "Existem produtos vinculados a mais de uma categoria folha desta familia.",
+            "produtos_conflitantes": exc.produtos,
+        }, status=409)
+    return JsonResponse(payload)
+
+
+@require_GET
+def oscilacoes_vendas_categorias(request):
+    visao = str(request.GET.get("visao") or "").strip().lower()
+    raiz_raw = request.GET.get("raiz_id")
+    if not raiz_raw or visao not in {"mensal", "semanal"}:
+        return JsonResponse({"detail": "Informe 'raiz_id' e 'visao=mensal|semanal'."}, status=400)
+    try:
+        raiz_id = int(raiz_raw)
+        ano = int(request.GET["ano"]) if visao == "mensal" else None
+        semana_inicio = date.fromisoformat(request.GET["semana_inicio"]) if visao == "semanal" else None
+    except (KeyError, TypeError, ValueError):
+        return JsonResponse({"detail": "Informe um ano ou domingo inicial valido para a visao escolhida."}, status=400)
+    try:
+        payload = montar_radar_oscilacoes(
+            raiz_id=raiz_id, visao=visao, ano=ano, semana_inicio=semana_inicio,
+        )
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
+    except Venda.DoesNotExist:
+        return JsonResponse({"detail": "Periodo sem vendas disponiveis."}, status=404)
+    except PlanoConta.DoesNotExist:
+        return JsonResponse({"detail": "Familia raiz nao encontrada."}, status=404)
+    except CategoriasAmbiguasError as exc:
+        return JsonResponse({
+            "detail": "Existem produtos vinculados a mais de uma categoria folha desta familia.",
+            "produtos_conflitantes": exc.produtos,
+        }, status=409)
     return JsonResponse(payload)
 
 
@@ -81,6 +154,9 @@ def vendas_por_produtos(request):
     metrica = str(request.GET.get("metrica") or "").strip().lower()
     page_raw = request.GET.get("page", "1")
     incluir_inativos = str(request.GET.get("incluir_inativos") or "").strip().lower() in {
+        "1", "true", "on", "sim", "yes"
+    }
+    periodo_equivalente = str(request.GET.get("periodo_equivalente") or "").strip().lower() in {
         "1", "true", "on", "sim", "yes"
     }
 
@@ -108,17 +184,55 @@ def vendas_por_produtos(request):
             raiz_id=raiz_id,
             categoria_id=categoria_id,
             metrica=metrica,
+            periodo_equivalente=periodo_equivalente,
             incluir_inativos=incluir_inativos,
             search=request.GET.get("search", ""),
             pagina=pagina,
         )
     except ValueError as exc:
         return JsonResponse({"detail": str(exc)}, status=400)
+    except AgregadoDiarioIncompletoError as exc:
+        return JsonResponse({"detail": str(exc)}, status=503)
     except MovimentoProdutoMensal.DoesNotExist:
         return JsonResponse({"detail": "Ano sem dados analiticos disponiveis."}, status=404)
     except PlanoConta.DoesNotExist:
         return JsonResponse({"detail": "Familia ou categoria nao encontrada."}, status=404)
 
+    return JsonResponse(payload)
+
+
+@require_GET
+def vendas_por_produtos_semanal(request):
+    obrigatorios = ("raiz_id", "categoria_id", "semana_inicio", "metrica")
+    if any(not request.GET.get(chave) for chave in obrigatorios):
+        return JsonResponse({"detail": "Informe 'raiz_id', 'categoria_id', 'semana_inicio' e 'metrica'."}, status=400)
+    try:
+        raiz_id = int(request.GET["raiz_id"])
+        categoria_id = int(request.GET["categoria_id"])
+        semana_inicio = date.fromisoformat(request.GET["semana_inicio"])
+        pagina = int(request.GET.get("page", "1"))
+    except (TypeError, ValueError):
+        return JsonResponse({"detail": "Familia, categoria, semana ou pagina invalida."}, status=400)
+    metrica = request.GET["metrica"].strip().lower()
+    equivalente = str(request.GET.get("periodo_equivalente", "1")).strip().lower() in {"1", "true", "on", "sim", "yes"}
+    incluir_inativos = str(request.GET.get("incluir_inativos", "0")).strip().lower() in {"1", "true", "on", "sim", "yes"}
+    try:
+        payload = montar_analise_vendas_produtos_semanal(
+            raiz_id=raiz_id, categoria_id=categoria_id, semana_inicio=semana_inicio,
+            metrica=metrica, periodo_equivalente=equivalente,
+            incluir_inativos=incluir_inativos, search=request.GET.get("search", ""), pagina=pagina,
+        )
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
+    except MovimentoProdutoSemanal.DoesNotExist:
+        return JsonResponse({"detail": "Semana sem agregado analitico disponivel."}, status=404)
+    except PlanoConta.DoesNotExist:
+        return JsonResponse({"detail": "Familia ou categoria nao encontrada."}, status=404)
+    except CategoriasAmbiguasError as exc:
+        return JsonResponse({
+            "detail": "Existem produtos vinculados a mais de uma categoria folha desta familia.",
+            "produtos_conflitantes": exc.produtos,
+        }, status=409)
     return JsonResponse(payload)
 
 

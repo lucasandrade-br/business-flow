@@ -2533,6 +2533,8 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
     periodos_analise = sorted(
         {(item["stg_venda"].data_venda.year, item["stg_venda"].data_venda.month) for item in preparadas}
     )
+    from apps.analise.services_vendas_semanais import inicio_semana
+    semanas_analise = sorted({inicio_semana(item["stg_venda"].data_venda) for item in preparadas})
     inseridas = 0
     momento_consolidacao = timezone.now()
     with transaction.atomic():
@@ -2599,6 +2601,8 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
     resultado_analise_categorias = {
         "periodos_processados": [],
         "periodos_com_falha": [],
+        "semanas_processadas": [],
+        "semanas_com_falha": [],
         "desatualizado": False,
     }
     if inseridas:
@@ -2614,8 +2618,15 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
                 resultado_analise_categorias["periodos_com_falha"].append(
                     {"ano": ano_periodo, "mes": mes_periodo}
                 )
+        from apps.analise.services_vendas_semanais import reconstruir_movimento_produto_semanal
+        for semana in semanas_analise:
+            try:
+                reconstruir_movimento_produto_semanal(semana)
+                resultado_analise_categorias["semanas_processadas"].append(semana.isoformat())
+            except Exception:
+                resultado_analise_categorias["semanas_com_falha"].append(semana.isoformat())
         resultado_analise_categorias["desatualizado"] = bool(
-            resultado_analise_categorias["periodos_com_falha"]
+            resultado_analise_categorias["periodos_com_falha"] or resultado_analise_categorias["semanas_com_falha"]
         )
 
     return {

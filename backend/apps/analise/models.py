@@ -153,6 +153,72 @@ class StatusMovimentoProdutoMensal(models.Model):
         indexes = [models.Index(fields=["ano", "status"], name="idx_status_mov_prod_ano")]
 
 
+class MovimentoProdutoDiario(models.Model):
+    """Itens de venda validos agregados por data, produto e unidade."""
+
+    data = models.DateField(db_index=True)
+    produto = models.ForeignKey(
+        "cadastros.Produto", db_column="id_produto", on_delete=models.CASCADE,
+        related_name="movimentos_diarios",
+    )
+    unidade_medida_id_origem = models.IntegerField(default=0)
+    unidade_sigla = models.CharField(max_length=20, default="SEM UN.")
+    receita_bruta = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    quantidade = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "movimento_produto_diario"
+        constraints = [models.UniqueConstraint(
+            fields=["data", "produto", "unidade_medida_id_origem"],
+            name="uniq_mov_prod_dia_unidade",
+        )]
+        indexes = [models.Index(fields=["produto", "data"], name="idx_mov_prod_diario_periodo")]
+
+
+class MovimentoProdutoSemanal(models.Model):
+    """Snapshot completo da semana domingo-sabado por produto e unidade."""
+
+    semana_inicio = models.DateField(db_index=True)
+    produto = models.ForeignKey(
+        "cadastros.Produto", db_column="id_produto", on_delete=models.CASCADE,
+        related_name="movimentos_semanais",
+    )
+    unidade_medida_id_origem = models.IntegerField(default=0)
+    unidade_sigla = models.CharField(max_length=20, default="SEM UN.")
+    receita_bruta = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    quantidade = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "movimento_produto_semanal"
+        constraints = [models.UniqueConstraint(
+            fields=["semana_inicio", "produto", "unidade_medida_id_origem"],
+            name="uniq_mov_prod_sem_unidade",
+        )]
+        indexes = [models.Index(fields=["produto", "semana_inicio"], name="idx_mov_prod_sem_periodo")]
+
+
+class StatusMovimentoProdutoSemanal(models.Model):
+    STATUS_PROCESSANDO = "PROCESSANDO"
+    STATUS_PRONTO = "PRONTO"
+    STATUS_FALHA = "FALHA"
+    STATUS_CHOICES = (
+        (STATUS_PROCESSANDO, "Processando"),
+        (STATUS_PRONTO, "Pronto"),
+        (STATUS_FALHA, "Falha"),
+    )
+
+    semana_inicio = models.DateField(unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSANDO)
+    erro = models.TextField(blank=True, default="")
+    ultimo_sucesso_em = models.DateTimeField(null=True, blank=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "status_movimento_produto_semanal"
+
+
 class MovimentoCompraProdutoMensal(models.Model):
     """Resumo mensal de compras por produto, fornecedor e unidade."""
 

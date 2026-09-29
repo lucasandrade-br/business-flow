@@ -3,7 +3,10 @@ from . import views
 
 urlpatterns = [
     path("categorias/vendas/", views.vendas_por_categorias, name="analise-vendas-categorias"),
+    path("categorias/vendas/semanal/", views.vendas_por_categorias_semanal, name="analise-vendas-categorias-semanal"),
+    path("categorias/vendas/oscilacoes/", views.oscilacoes_vendas_categorias, name="analise-vendas-categorias-oscilacoes"),
     path("categorias/produtos/vendas/", views.vendas_por_produtos, name="analise-vendas-produtos"),
+    path("categorias/produtos/vendas/semanal/", views.vendas_por_produtos_semanal, name="analise-vendas-produtos-semanal"),
     path("categorias/compras/", views.compras_por_categorias, name="analise-compras-categorias"),
     path("categorias/produtos/compras/", views.compras_por_produtos, name="analise-compras-produtos"),
     path("dashboard/kpis/", views.dashboard_kpis, name="dashboard-kpis"),

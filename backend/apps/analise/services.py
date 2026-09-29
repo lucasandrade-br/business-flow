@@ -6,8 +6,8 @@ from datetime import date, time, timedelta
 
 from django.db import transaction
 from django.core.paginator import Paginator
-from django.db.models import CharField, DecimalField, Exists, F, Max, OuterRef, Q, Subquery, Sum, Count, Value
-from django.db.models.functions import Cast, Coalesce, NullIf, Trim, TruncMonth
+from django.db.models import CharField, DecimalField, Exists, F, Max, Min, OuterRef, Q, Subquery, Sum, Count, Value
+from django.db.models.functions import Cast, Coalesce, ExtractMonth, NullIf, Trim, TruncMonth
 from django.utils import timezone
 
 from apps.cadastros.models import Fornecedor, PlanoConta, Produto, TipoVenda
@@ -20,8 +20,10 @@ from apps.analise.models import (
     MovimentoDiario,
     MovimentoCompraProdutoMensal,
     MovimentoProdutoMensal,
+    MovimentoProdutoDiario,
     StatusMovimentoCompraProdutoMensal,
     StatusMovimentoProdutoMensal,
+    StatusMovimentoProdutoSemanal,
 )
 
 _MESES_LABELS = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
@@ -34,6 +36,10 @@ class CategoriasAmbiguasError(Exception):
     def __init__(self, produtos: list[dict]):
         self.produtos = produtos
         super().__init__("Existem produtos vinculados a mais de uma folha desta familia.")
+
+
+class AgregadoDiarioIncompletoError(Exception):
+    """O corte mensal precisa da cobertura diária das semanas carregadas."""
 
 
 def _decimal_texto(valor: Decimal) -> str:
@@ -168,7 +174,35 @@ def reconstruir_movimentos_produto_mensal(ano: int | None = None) -> dict:
     return {"periodos_processados": len(periodos), "linhas_geradas": total_linhas}
 
 
-def montar_analise_vendas_categorias(*, ano: int, raiz_id: int, metrica: str) -> dict:
+def _fonte_vendas_mensal(ano: int, periodo_equivalente: bool):
+    """Escolhe o snapshot mensal ou o corte diário e valida sua cobertura."""
+    contexto_mes_aberto = contexto_mes_aberto_vendas(ano)
+    equivalente_aplicado = bool(periodo_equivalente and contexto_mes_aberto["mes_aberto"])
+    dia_corte = date.fromisoformat(contexto_mes_aberto["ultima_data_disponivel"]).day if equivalente_aplicado else None
+    semanas_desatualizadas = []
+    if equivalente_aplicado:
+        primeira = Venda.objects.filter(data_venda__year=ano).exclude(status=_STATUS_CANCELADO).aggregate(primeira=Min("data_venda"))["primeira"]
+        cursor = primeira - timedelta(days=(primeira.weekday() + 1) % 7)
+        fim = date.fromisoformat(contexto_mes_aberto["ultima_data_disponivel"])
+        status_semanais = {
+            item.semana_inicio: item
+            for item in StatusMovimentoProdutoSemanal.objects.filter(semana_inicio__gte=cursor, semana_inicio__lte=fim)
+        }
+        while cursor <= fim:
+            status = status_semanais.get(cursor)
+            if status is None or status.ultimo_sucesso_em is None:
+                raise AgregadoDiarioIncompletoError("Construa o histórico diário/semanal antes de usar períodos equivalentes.")
+            if status.status != StatusMovimentoProdutoSemanal.STATUS_PRONTO:
+                semanas_desatualizadas.append(cursor.isoformat())
+            cursor += timedelta(days=7)
+        fonte_vendas = MovimentoProdutoDiario.objects.filter(data__year=ano, data__day__lte=dia_corte).annotate(mes_periodo=ExtractMonth("data"))
+    else:
+        fonte_vendas = MovimentoProdutoMensal.objects.filter(ano=ano).annotate(mes_periodo=F("mes"))
+
+    return contexto_mes_aberto, equivalente_aplicado, dia_corte, semanas_desatualizadas, fonte_vendas
+
+
+def montar_analise_vendas_categorias(*, ano: int, raiz_id: int, metrica: str, periodo_equivalente: bool = False) -> dict:
     if metrica not in {"valor", "quantidade"}:
         raise ValueError("Metrica invalida. Use 'valor' ou 'quantidade'.")
 
@@ -177,6 +211,10 @@ def montar_analise_vendas_categorias(*, ano: int, raiz_id: int, metrica: str) ->
         raise PlanoConta.DoesNotExist
     if not MovimentoProdutoMensal.objects.filter(ano=ano).exists():
         raise MovimentoProdutoMensal.DoesNotExist
+
+    contexto_mes_aberto, equivalente_aplicado, dia_corte, semanas_desatualizadas, fonte_vendas = (
+        _fonte_vendas_mensal(ano, periodo_equivalente)
+    )
 
     nodes = list(
         PlanoConta.objects.filter(codigo_ordenacao__startswith=raiz.codigo_ordenacao)
@@ -200,26 +238,24 @@ def montar_analise_vendas_categorias(*, ano: int, raiz_id: int, metrica: str) ->
     if metrica == "valor":
         acumulados = {node_id: [Decimal("0") for _ in range(12)] for node_id in node_ids}
         agregados = (
-            MovimentoProdutoMensal.objects.filter(
-                ano=ano,
+            fonte_vendas.filter(
                 produto__categorias__id_conta__in=folhas,
             )
-            .values("produto__categorias__id_conta", "mes")
+            .values("produto__categorias__id_conta", "mes_periodo")
             .annotate(total=Sum("receita_bruta"))
             .order_by()
         )
         for row in agregados:
-            acumulados[row["produto__categorias__id_conta"]][row["mes"] - 1] += row["total"] or Decimal("0")
+            acumulados[row["produto__categorias__id_conta"]][row["mes_periodo"] - 1] += row["total"] or Decimal("0")
     else:
         acumulados = {node_id: defaultdict(lambda: [Decimal("0") for _ in range(12)]) for node_id in node_ids}
         agregados = (
-            MovimentoProdutoMensal.objects.filter(
-                ano=ano,
+            fonte_vendas.filter(
                 produto__categorias__id_conta__in=folhas,
             )
             .values(
                 "produto__categorias__id_conta",
-                "mes",
+                "mes_periodo",
                 "unidade_medida_id_origem",
                 "unidade_sigla",
             )
@@ -228,7 +264,7 @@ def montar_analise_vendas_categorias(*, ano: int, raiz_id: int, metrica: str) ->
         )
         for row in agregados:
             chave_unidade = (row["unidade_medida_id_origem"], row["unidade_sigla"])
-            acumulados[row["produto__categorias__id_conta"]][chave_unidade][row["mes"] - 1] += (
+            acumulados[row["produto__categorias__id_conta"]][chave_unidade][row["mes_periodo"] - 1] += (
                 row["total"] or Decimal("0")
             )
 
@@ -287,7 +323,6 @@ def montar_analise_vendas_categorias(*, ano: int, raiz_id: int, metrica: str) ->
         default=None,
     )
 
-    contexto_mes_aberto = contexto_mes_aberto_vendas(ano)
     return {
         "ano_consultado": ano,
         "metrica": metrica,
@@ -298,9 +333,12 @@ def montar_analise_vendas_categorias(*, ano: int, raiz_id: int, metrica: str) ->
         },
         "meses": _MESES_LABELS,
         **contexto_mes_aberto,
+        "periodo_equivalente": equivalente_aplicado,
+        "dia_corte": dia_corte,
         "linhas": linhas,
-        "desatualizado": bool(periodos_desatualizados),
+        "desatualizado": bool(periodos_desatualizados or semanas_desatualizadas),
         "periodos_desatualizados": periodos_desatualizados,
+        "semanas_desatualizadas": semanas_desatualizadas,
         "atualizado_em": ultimo_sucesso.isoformat() if ultimo_sucesso else None,
     }
 
@@ -311,6 +349,7 @@ def montar_analise_vendas_produtos(
     raiz_id: int,
     categoria_id: int,
     metrica: str,
+    periodo_equivalente: bool = False,
     incluir_inativos: bool = False,
     search: str = "",
     pagina: int = 1,
@@ -332,6 +371,10 @@ def montar_analise_vendas_produtos(
         raise ValueError("A categoria selecionada nao pertence a familia informada.")
     if not MovimentoProdutoMensal.objects.filter(ano=ano).exists():
         raise MovimentoProdutoMensal.DoesNotExist
+
+    contexto_mes_aberto, equivalente_aplicado, dia_corte, semanas_desatualizadas, fonte_vendas = (
+        _fonte_vendas_mensal(ano, periodo_equivalente)
+    )
 
     categorias_subarvore = PlanoConta.objects.filter(
         codigo_ordenacao__startswith=categoria.codigo_ordenacao,
@@ -391,27 +434,27 @@ def montar_analise_vendas_produtos(
     if metrica == "valor":
         acumulados = {produto_id: [Decimal("0") for _ in range(12)] for produto_id in produto_ids}
         movimentos = (
-            MovimentoProdutoMensal.objects.filter(ano=ano, produto_id__in=produto_ids)
-            .values("produto_id", "mes")
+            fonte_vendas.filter(produto_id__in=produto_ids)
+            .values("produto_id", "mes_periodo")
             .annotate(total=Sum("receita_bruta"))
             .order_by()
         )
         for movimento in movimentos:
-            acumulados[movimento["produto_id"]][movimento["mes"] - 1] += movimento["total"] or Decimal("0")
+            acumulados[movimento["produto_id"]][movimento["mes_periodo"] - 1] += movimento["total"] or Decimal("0")
     else:
         acumulados = {
             produto_id: defaultdict(lambda: [Decimal("0") for _ in range(12)])
             for produto_id in produto_ids
         }
         movimentos = (
-            MovimentoProdutoMensal.objects.filter(ano=ano, produto_id__in=produto_ids)
-            .values("produto_id", "mes", "unidade_medida_id_origem", "unidade_sigla")
+            fonte_vendas.filter(produto_id__in=produto_ids)
+            .values("produto_id", "mes_periodo", "unidade_medida_id_origem", "unidade_sigla")
             .annotate(total=Sum("quantidade"))
             .order_by()
         )
         for movimento in movimentos:
             unidade = (movimento["unidade_medida_id_origem"], movimento["unidade_sigla"])
-            acumulados[movimento["produto_id"]][unidade][movimento["mes"] - 1] += (
+            acumulados[movimento["produto_id"]][unidade][movimento["mes_periodo"] - 1] += (
                 movimento["total"] or Decimal("0")
             )
 
@@ -451,7 +494,6 @@ def montar_analise_vendas_produtos(
         default=None,
     )
 
-    contexto_mes_aberto = contexto_mes_aberto_vendas(ano)
     return {
         "ano_consultado": ano,
         "metrica": metrica,
@@ -467,6 +509,8 @@ def montar_analise_vendas_produtos(
         },
         "meses": _MESES_LABELS,
         **contexto_mes_aberto,
+        "periodo_equivalente": equivalente_aplicado,
+        "dia_corte": dia_corte,
         "linhas": linhas,
         "paginacao": {
             "pagina": pagina_obj.number,
@@ -475,8 +519,9 @@ def montar_analise_vendas_produtos(
             "total_paginas": paginador.num_pages,
         },
         "inativos_ocultos": inativos_ocultos,
-        "desatualizado": bool(periodos_desatualizados),
+        "desatualizado": bool(periodos_desatualizados or semanas_desatualizadas),
         "periodos_desatualizados": periodos_desatualizados,
+        "semanas_desatualizadas": semanas_desatualizadas,
         "atualizado_em": ultimo_sucesso.isoformat() if ultimo_sucesso else None,
     }
 
