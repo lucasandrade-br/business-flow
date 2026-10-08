@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { BarChart2, CalendarDays, ChevronDown, ChevronRight, Layers3, PackageSearch, ShoppingCart, TrendingUp } from 'lucide-vue-next'
+import { BarChart2, BookmarkCheck, CalendarDays, ChevronDown, ChevronRight, Layers3, PackageSearch, ShoppingCart, TrendingUp } from 'lucide-vue-next'
 import { mainSidebarPinned } from '@/stores/mainSidebar.js'
 
 onMounted(() => { mainSidebarPinned.value = false })
 
 const route = useRoute()
-const sectionOpen = ref({ visaoGeral: true, vendas: true, compras: true, categorias: true })
+const sectionOpen = ref({ visaoGeral: true, vendas: true, compras: true, categorias: true, despesas: true })
 
 function toggleSection(key) {
   sectionOpen.value[key] = !sectionOpen.value[key]
@@ -16,8 +16,8 @@ function toggleSection(key) {
 const sidebarLeft = computed(() => mainSidebarPinned.value ? '16rem' : '4rem')
 const currentTitle = computed(() => route.meta?.title ?? '')
 
-function linkClass(to) {
-  const active = route.path === to || route.path.startsWith(to + '/')
+function linkClass(to, exact = false) {
+  const active = route.path === to || (!exact && route.path.startsWith(to + '/'))
   return [
     'flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors',
     active
@@ -67,9 +67,13 @@ function linkClass(to) {
           <ChevronDown class="h-3.5 w-3.5 transition-transform duration-200" :class="sectionOpen.visaoGeral ? 'rotate-0' : '-rotate-90'" />
         </button>
         <div class="mt-1 space-y-1 overflow-hidden transition-all duration-200" :class="sectionOpen.visaoGeral ? 'max-h-56 opacity-100' : 'max-h-0 opacity-0'">
-          <RouterLink to="/analise/visao-geral" :class="linkClass('/analise/visao-geral')">
+          <RouterLink :to="{ path: '/analise/visao-geral/anual', query: route.query.ano ? { ano: route.query.ano } : {} }" :class="linkClass('/analise/visao-geral/anual')">
             <BarChart2 class="h-4 w-4 shrink-0" />
-            <span class="whitespace-nowrap">Geral</span>
+            <span class="whitespace-nowrap">Anual</span>
+          </RouterLink>
+          <RouterLink :to="{ path: '/analise/visao-geral/mensal', query: route.query.ano ? { ano: route.query.ano } : {} }" :class="linkClass('/analise/visao-geral/mensal')">
+            <CalendarDays class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Mensal</span>
           </RouterLink>
         </div>
       </section>
@@ -88,10 +92,11 @@ function linkClass(to) {
             <TrendingUp class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Análise de Vendas</span>
           </RouterLink>
-          <RouterLink to="/analise/categorias/vendas" :class="linkClass('/analise/categorias/vendas')">
+          <RouterLink to="/analise/categorias/vendas" :class="linkClass('/analise/categorias/vendas', true)">
             <Layers3 class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Por Categoria</span>
           </RouterLink>
+
           <RouterLink to="/analise/categorias/produtos/vendas" :class="linkClass('/analise/categorias/produtos/vendas')">
             <PackageSearch class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Por Produto</span>
@@ -100,7 +105,10 @@ function linkClass(to) {
             <CalendarDays class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Movimento Clientes</span>
           </RouterLink>
-
+          <RouterLink to="/analise/categorias/vendas/quarentena" :class="linkClass('/analise/categorias/vendas/quarentena')">
+            <BookmarkCheck class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Quarentena</span>
+          </RouterLink>
 
         </div>
       </section>
@@ -126,6 +134,27 @@ function linkClass(to) {
           <RouterLink to="/analise/categorias/produtos/compras" :class="linkClass('/analise/categorias/produtos/compras')">
             <PackageSearch class="h-4 w-4 shrink-0" />
             <span class="whitespace-nowrap">Por Produto</span>
+          </RouterLink>
+        </div>
+      </section>
+
+      <section>
+        <button
+          type="button"
+          class="flex w-full items-center justify-between rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-500 hover:bg-gray-100"
+          @click="toggleSection('despesas')"
+        >
+          <span>Despesas</span>
+          <ChevronDown class="h-3.5 w-3.5 transition-transform duration-200" :class="sectionOpen.despesas ? 'rotate-0' : '-rotate-90'" />
+        </button>
+        <div class="mt-1 space-y-1 overflow-hidden transition-all duration-200" :class="sectionOpen.despesas ? 'max-h-56 opacity-100' : 'max-h-0 opacity-0'">
+          <RouterLink to="/analise/despesas" :class="linkClass('/analise/despesas', true)">
+            <Layers3 class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Por Categoria</span>
+          </RouterLink>
+          <RouterLink to="/analise/despesas/tipos" :class="linkClass('/analise/despesas/tipos', true)">
+            <PackageSearch class="h-4 w-4 shrink-0" />
+            <span class="whitespace-nowrap">Por Tipo</span>
           </RouterLink>
         </div>
       </section>

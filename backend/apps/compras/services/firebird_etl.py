@@ -39,7 +39,7 @@ SQL_ITENS_COMPRA = """
         COALESCE(P.PRODUTO, '') AS NOME_PRODUTO,
         NCD.QUANTIDADE,
         NCD.VALOR_CUSTO,
-        (COALESCE(NCD.QUANTIDADE, 0) * COALESCE(NCD.VALOR_CUSTO, 0)) AS VALOR_TOTAL,
+        NCD.TOTAL_ITEM AS VALOR_TOTAL,
         COALESCE(NCD.UNIDADE, '') AS UNIDADE,
         COALESCE(NCD.DESCRICAO, '') AS DESCRICAO,
         COALESCE(NCD.DESCRICAO_COMPRA, '') AS DESCRICAO_COMPRA
@@ -138,6 +138,7 @@ def sincronizar_compras_legado(
             user=settings.FDB_USER,
             password=settings.FDB_PASS,
             charset="WIN1252",
+            utf8params=True,
         )
         cursor = conn.cursor()
 
@@ -196,9 +197,6 @@ def sincronizar_compras_legado(
                 quantidade = _to_decimal(row[4])
                 valor_custo = _to_decimal(row[5])
                 valor_total_legado = _to_decimal(row[6])
-                valor_total_calculado = None
-                if quantidade is not None and valor_custo is not None:
-                    valor_total_calculado = quantidade * valor_custo
 
                 stg_itens.append(
                     STG_ItemCompra(
@@ -210,7 +208,6 @@ def sincronizar_compras_legado(
                         quantidade=quantidade,
                         valor_custo=valor_custo,
                         valor_total_legado=valor_total_legado,
-                        valor_total_calculado=valor_total_calculado,
                         unidade_legado=_normalize_text(row[7]),
                         descricao_legado=_normalize_text(row[8]),
                         descricao_compra_legado=_normalize_text(row[9]),

@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 :: ── Lê PWA_SHORTCUT_PATH do .env ────────────────────────────────────────────
-set "PWA_SHORTCUT_PATH=C:\Users\emanu\Documents\Outros\Business Flow.lnk"
+set "PWA_SHORTCUT_PATH="
 if exist ".env" (
     for /f "usebackq eol=# tokens=1* delims==" %%A in (".env") do (
         if /i "%%~A"=="PWA_SHORTCUT_PATH" set "PWA_SHORTCUT_PATH=%%~B"
@@ -48,25 +48,17 @@ if errorlevel 1 ( popd & echo Falha na migracao - Henriques. & pause & exit /b 1
 popd
 
 echo [3/5] Atualizando KPIs do dashboard...
-echo Henrique de Centro...
+echo Centro...
 set BUSINESS_FILIAL=centro
 pushd backend
-python manage.py refresh_dashboard_kpis 2>nul
-python manage.py refresh_dashboard_kpis_compras 2>nul
-python manage.py refresh_dre_consolidada 2>nul
-python manage.py refresh_movimento_diario 2>nul
-python manage.py rebuild_movimento_produto_mensal 2>nul
-python manage.py rebuild_movimento_compra_produto_mensal 2>nul
+python manage.py atualizar_dados
+if errorlevel 1 ( popd & echo Falha ao atualizar dados - Centro. & pause & exit /b 1 )
 popd
 echo Henrique de Holanda...
 set BUSINESS_FILIAL=henriques
 pushd backend
-python manage.py refresh_dashboard_kpis 2>nul
-python manage.py refresh_dashboard_kpis_compras 2>nul
-python manage.py refresh_dre_consolidada 2>nul
-python manage.py refresh_movimento_diario 2>nul
-python manage.py rebuild_movimento_produto_mensal 2>nul
-python manage.py rebuild_movimento_compra_produto_mensal 2>nul
+python manage.py atualizar_dados
+if errorlevel 1 ( popd & echo Falha ao atualizar dados - Henriques. & pause & exit /b 1 )
 popd
 
 :: ── Build do frontend ─────────────────────────────────────────────────────────
@@ -151,4 +143,3 @@ del "%TEMP%\pd_henriques.bat" 2>nul
 del "%TEMP%\pd_frontend.bat" 2>nul
 echo Servicos encerrados.
 endlocal
-

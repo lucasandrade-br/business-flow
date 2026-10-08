@@ -1247,6 +1247,8 @@ def consolidar_compras_stg_para_sot() -> dict[str, Any]:
         (pacote["compra"].data_emissao.year, pacote["compra"].data_emissao.month)
         for pacote in preparadas
     }
+    from apps.analise.services_compras_periodos import inicio_semana
+    semanas_afetadas = {inicio_semana(pacote["compra"].data_emissao) for pacote in preparadas}
 
     with transaction.atomic():
         for pacote in preparadas:
@@ -1301,6 +1303,22 @@ def consolidar_compras_stg_para_sot() -> dict[str, Any]:
                 "Compra consolidada, mas o agregado analítico falhou para %s/%02d.",
                 ano_periodo,
                 mes_periodo,
+            )
+
+    from apps.analise.services_compras_periodos import reconstruir_movimento_compra_produto_semanal
+    for semana in sorted(semanas_afetadas):
+        try:
+            reconstruir_movimento_compra_produto_semanal(semana)
+        except Exception:
+            logger.exception("Compra consolidada, mas o agregado semanal falhou para %s.", semana)
+
+    from apps.analise.services_dre import reconstruir_dre_mes
+    for ano_periodo, mes_periodo in sorted(periodos_afetados):
+        try:
+            reconstruir_dre_mes(ano_periodo, mes_periodo)
+        except Exception:
+            logger.exception(
+                "Compra consolidada, mas o DRE falhou para %s/%02d.", ano_periodo, mes_periodo,
             )
 
     return {

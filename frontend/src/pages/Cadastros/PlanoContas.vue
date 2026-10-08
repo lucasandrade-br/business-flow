@@ -133,6 +133,7 @@
 
     <ModalGerenciarVinculos
       v-model="showVinculosModal"
+      :roots-options="rootsOptions"
       :loading="savingVinculos"
       :error="vinculosError"
       @submit="aplicarVinculos"

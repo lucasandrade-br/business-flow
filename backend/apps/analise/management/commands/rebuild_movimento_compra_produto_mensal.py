@@ -9,12 +9,14 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--ano", type=int, help="Reconstrói somente o ano informado.")
         parser.add_argument("--mes", type=int, help="Reconstrói somente o mês informado; requer --ano.")
+        parser.add_argument("--somente-pendentes", action="store_true")
 
     def handle(self, *args, **options):
         try:
             resultado = reconstruir_movimentos_compra_produto_mensal(
                 ano=options.get("ano"),
                 mes=options.get("mes"),
+                somente_pendentes=options.get("somente_pendentes", False),
             )
         except Exception as exc:
             raise CommandError(f"Falha ao reconstruir o agregado de compras: {exc}") from exc

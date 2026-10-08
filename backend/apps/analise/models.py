@@ -1,6 +1,21 @@
 from django.db import models
 
 
+class CategoriaVendaQuarentena(models.Model):
+    """Marcacao compartilhada no banco da filial, sem alterar a analise de vendas."""
+
+    categoria = models.OneToOneField(
+        "cadastros.PlanoConta",
+        db_column="id_conta",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="quarentena_vendas",
+    )
+
+    class Meta:
+        db_table = "categoria_venda_quarentena"
+
+
 class DashboardKpiVenda(models.Model):
     # YTD — acumulado 01/Jan até última data do ano atual
     ytd_receita_atual = models.DecimalField(max_digits=18, decimal_places=2, default=0)
@@ -71,6 +86,40 @@ class DreMensalConsolidada(models.Model):
 
     def __str__(self) -> str:
         return f"DRE {self.ano}/{self.mes:02d}"
+
+
+class DreDiarioConsolidada(models.Model):
+    """Totais documentais por data para cortes equivalentes do DRE."""
+
+    data = models.DateField(unique=True)
+    total_receita = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    total_custo = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "dre_diario_consolidada"
+
+
+class StatusDreConsolidada(models.Model):
+    STATUS_PROCESSANDO = "PROCESSANDO"
+    STATUS_PRONTO = "PRONTO"
+    STATUS_FALHA = "FALHA"
+    STATUS_CHOICES = (
+        (STATUS_PROCESSANDO, "Processando"),
+        (STATUS_PRONTO, "Pronto"),
+        (STATUS_FALHA, "Falha"),
+    )
+
+    ano = models.IntegerField()
+    mes = models.PositiveSmallIntegerField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSANDO)
+    erro = models.TextField(blank=True, default="")
+    ultimo_sucesso_em = models.DateTimeField(null=True, blank=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "status_dre_consolidada"
+        constraints = [models.UniqueConstraint(fields=["ano", "mes"], name="uniq_status_dre_ano_mes")]
 
 
 class MovimentoDiario(models.Model):
@@ -292,3 +341,65 @@ class StatusMovimentoCompraProdutoMensal(models.Model):
             ),
         ]
         indexes = [models.Index(fields=["ano", "status"], name="idx_status_mov_compra_ano")]
+
+
+class MovimentoCompraProdutoDiario(models.Model):
+    """Compras válidas por data, produto, fornecedor e unidade."""
+
+    data = models.DateField(db_index=True)
+    produto = models.ForeignKey("cadastros.Produto", db_column="id_produto", on_delete=models.CASCADE)
+    fornecedor = models.ForeignKey("cadastros.Fornecedor", db_column="id_fornecedor", on_delete=models.CASCADE)
+    unidade_medida_id_origem = models.IntegerField(default=0)
+    unidade_sigla = models.CharField(max_length=20, default="SEM UN.")
+    valor_comprado = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    quantidade = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "movimento_compra_produto_diario"
+        constraints = [models.UniqueConstraint(
+            fields=["data", "produto", "fornecedor", "unidade_medida_id_origem"],
+            name="uniq_mov_compra_prod_dia_for_un",
+        )]
+        indexes = [models.Index(fields=["produto", "data"], name="idx_mov_compra_prod_dia")]
+
+
+class MovimentoCompraProdutoSemanal(models.Model):
+    """Snapshot completo de domingo a sábado das compras válidas."""
+
+    semana_inicio = models.DateField(db_index=True)
+    produto = models.ForeignKey("cadastros.Produto", db_column="id_produto", on_delete=models.CASCADE)
+    fornecedor = models.ForeignKey("cadastros.Fornecedor", db_column="id_fornecedor", on_delete=models.CASCADE)
+    unidade_medida_id_origem = models.IntegerField(default=0)
+    unidade_sigla = models.CharField(max_length=20, default="SEM UN.")
+    valor_comprado = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    quantidade = models.DecimalField(max_digits=24, decimal_places=6, default=0)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "movimento_compra_produto_semanal"
+        constraints = [models.UniqueConstraint(
+            fields=["semana_inicio", "produto", "fornecedor", "unidade_medida_id_origem"],
+            name="uniq_mov_compra_prod_sem_for_un",
+        )]
+        indexes = [models.Index(fields=["produto", "semana_inicio"], name="idx_mov_compra_prod_sem")]
+
+
+class StatusMovimentoCompraProdutoSemanal(models.Model):
+    STATUS_PROCESSANDO = "PROCESSANDO"
+    STATUS_PRONTO = "PRONTO"
+    STATUS_FALHA = "FALHA"
+    STATUS_CHOICES = (
+        (STATUS_PROCESSANDO, "Processando"),
+        (STATUS_PRONTO, "Pronto"),
+        (STATUS_FALHA, "Falha"),
+    )
+
+    semana_inicio = models.DateField(unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSANDO)
+    erro = models.TextField(blank=True, default="")
+    ultimo_sucesso_em = models.DateTimeField(null=True, blank=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "status_movimento_compra_produto_semanal"

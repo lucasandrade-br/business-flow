@@ -6,22 +6,38 @@
     @update:model-value="(value) => emit('update:modelValue', value)"
   >
     <div class="space-y-4">
-      <label class="space-y-1 text-xs">
-        <span class="font-medium text-gray-600">Categoria</span>
-        <RemoteSearchSelect
-          v-model="selectedCategoriaId"
-          :endpoint="opcoesEndpoint"
-          value-field="id_conta"
-          label-field="label"
-          resolve-param="ids"
-          :extra-params="{ somente_folhas: 1 }"
-          all-label="Selecione uma categoria"
-          search-placeholder="Buscar por codigo ou nome"
-          :limit="30"
-          button-class="inline-flex w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          dropdown-class="absolute z-30 mt-1 w-full min-w-[18rem] rounded-md border border-gray-200 bg-white p-2 shadow-lg"
-        />
-      </label>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label class="space-y-1 text-xs">
+          <span class="font-medium text-gray-600">Família</span>
+          <select
+            v-model="selectedRaiz"
+            class="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"
+          >
+            <option value="">Todas as famílias</option>
+            <option v-for="root in rootsOptions" :key="root.value" :value="String(root.value)">
+              {{ root.label }}
+            </option>
+          </select>
+        </label>
+
+        <label class="space-y-1 text-xs">
+          <span class="font-medium text-gray-600">Categoria</span>
+          <RemoteSearchSelect
+            :key="selectedRaiz || 'todas'"
+            v-model="selectedCategoriaId"
+            :endpoint="opcoesEndpoint"
+            value-field="id_conta"
+            label-field="label"
+            resolve-param="ids"
+            :extra-params="{ somente_folhas: 1, raiz_id: selectedRaiz }"
+            all-label="Selecione uma categoria"
+            search-placeholder="Buscar por codigo ou nome"
+            :limit="30"
+            button-class="inline-flex w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            dropdown-class="absolute z-30 mt-1 w-full min-w-[18rem] rounded-md border border-gray-200 bg-white p-2 shadow-lg"
+          />
+        </label>
+      </div>
 
       <label class="space-y-1 text-xs">
         <span class="font-medium text-gray-600">Buscar Produtos</span>
@@ -123,10 +139,12 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
   error: { type: String, default: "" },
+  rootsOptions: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["update:modelValue", "submit"]);
 
+const selectedRaiz = ref("");
 const selectedCategoriaId = ref("");
 const search = ref("");
 const mostrarApenasVinculados = ref(false);
@@ -140,6 +158,7 @@ const selectAllRef = ref(null);
 let debounceTimer;
 
 function resetState() {
+  selectedRaiz.value = "";
   selectedCategoriaId.value = "";
   search.value = "";
   mostrarApenasVinculados.value = false;
@@ -288,6 +307,10 @@ watch(search, (value) => {
 
 watch(mostrarApenasVinculados, () => {
   fetchProdutos(search.value);
+});
+
+watch(selectedRaiz, () => {
+  selectedCategoriaId.value = "";
 });
 
 watch(selectedCategoriaId, () => {

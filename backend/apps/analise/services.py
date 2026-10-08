@@ -527,11 +527,9 @@ def montar_analise_vendas_produtos(
 
 
 def status_agregados_compras() -> dict:
-    anos = list(
-        MovimentoCompraProdutoMensal.objects.values_list("ano", flat=True)
-        .distinct()
-        .order_by("-ano")
-    )
+    anos = sorted(set(MovimentoCompraProdutoMensal.objects.values_list("ano", flat=True).distinct())
+                  | set(StatusMovimentoCompraProdutoMensal.objects.filter(
+                      ultimo_sucesso_em__isnull=False).values_list("ano", flat=True).distinct()), reverse=True)
     estados = list(
         StatusMovimentoCompraProdutoMensal.objects.order_by("-ano", "mes").values(
             "ano", "mes", "status", "ultimo_sucesso_em", "atualizado_em"
@@ -620,6 +618,7 @@ def reconstruir_movimento_compra_produto_mensal(ano: int, mes: int) -> int:
 def reconstruir_movimentos_compra_produto_mensal(
     ano: int | None = None,
     mes: int | None = None,
+    somente_pendentes: bool = False,
 ) -> dict:
     if mes is not None and ano is None:
         raise ValueError("Informe o ano ao reconstruir um mes especifico.")
@@ -641,8 +640,28 @@ def reconstruir_movimentos_compra_produto_mensal(
     periodos = {(data.year, data.month) for data in compras.dates("data_emissao", "month")}
     periodos.update(movimentos.values_list("ano", "mes").distinct())
     periodos.update(estados.values_list("ano", "mes").distinct())
+    # O intervalo carregado confirma também os meses sem movimento. Sem esse
+    # estado, a API não consegue distinguir zero real de lacuna de carga.
+    limites = ItemCompra.objects.filter(
+        quantidade__gte=0, valor_custo__gte=0, valor_total_item__gte=0,
+    ).exclude(compra__nfe_status__iexact=_STATUS_CANCELADA_COMPRA).aggregate(
+        primeira=Min("compra__data_emissao"), ultima=Max("compra__data_emissao")
+    )
+    if limites["primeira"] and limites["ultima"]:
+        cursor = date(limites["primeira"].year, limites["primeira"].month, 1)
+        ultimo = date(limites["ultima"].year, limites["ultima"].month, 1)
+        while cursor <= ultimo:
+            if (ano is None or cursor.year == ano) and (mes is None or cursor.month == mes):
+                periodos.add((cursor.year, cursor.month))
+            cursor = date(cursor.year + (cursor.month == 12), cursor.month % 12 + 1, 1)
 
     total_linhas = 0
+    if somente_pendentes:
+        prontos = set(StatusMovimentoCompraProdutoMensal.objects.filter(
+            status=StatusMovimentoCompraProdutoMensal.STATUS_PRONTO,
+            ultimo_sucesso_em__isnull=False,
+        ).values_list("ano", "mes"))
+        periodos.difference_update(prontos)
     for ano_periodo, mes_periodo in sorted(periodos):
         total_linhas += reconstruir_movimento_compra_produto_mensal(ano_periodo, mes_periodo)
     return {"periodos_processados": len(periodos), "linhas_geradas": total_linhas}
@@ -1409,43 +1428,11 @@ def processar_kpis_compras() -> None:
     )
 
 
-def atualizar_dre_consolidada() -> None:
-    """Reconsolida toda a tabela DRE agregando vendas e compras por ano/mês."""
-    vendas_por_mes = (
-        Venda.objects
-        .exclude(status=_STATUS_CANCELADO)
-        .values("data_venda__year", "data_venda__month")
-        .annotate(total=Sum("valor_total_documento"))
-    )
+def atualizar_dre_consolidada(*, somente_pendentes: bool = False) -> dict:
+    """Reconstrói diário e mensal na mesma rotina, preservando o comando legado."""
+    from .services_dre import reconstruir_historico_dre
 
-    compras_por_mes = (
-        Compra.objects
-        .exclude(nfe_status=_STATUS_CANCELADA_COMPRA)
-        .values("data_emissao__year", "data_emissao__month")
-        .annotate(total=Sum("valor_total_documento"))
-    )
-
-    dre: dict = {}
-
-    for row in vendas_por_mes:
-        key = (row["data_venda__year"], row["data_venda__month"])
-        dre.setdefault(key, {"receita": Decimal("0"), "custo": Decimal("0")})
-        dre[key]["receita"] = row["total"] or Decimal("0")
-
-    for row in compras_por_mes:
-        key = (row["data_emissao__year"], row["data_emissao__month"])
-        dre.setdefault(key, {"receita": Decimal("0"), "custo": Decimal("0")})
-        dre[key]["custo"] = row["total"] or Decimal("0")
-
-    for (ano, mes), vals in dre.items():
-        DreMensalConsolidada.objects.update_or_create(
-            ano=ano,
-            mes=mes,
-            defaults={
-                "total_receita": vals["receita"],
-                "total_custo":   vals["custo"],
-            },
-        )
+    return reconstruir_historico_dre(somente_pendentes=somente_pendentes)
 
 
 def atualizar_movimento_diario() -> None:

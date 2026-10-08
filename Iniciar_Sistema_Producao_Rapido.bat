@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 :: ── Lê PWA_SHORTCUT_PATH do .env ────────────────────────────────────────────
-set "PWA_SHORTCUT_PATH=C:\Users\emanu\Documents\Outros\Business Flow.lnk"
+set "PWA_SHORTCUT_PATH="
 if exist ".env" (
     for /f "usebackq eol=# tokens=1* delims==" %%A in (".env") do (
         if /i "%%~A"=="PWA_SHORTCUT_PATH" set "PWA_SHORTCUT_PATH=%%~B"
@@ -30,9 +30,10 @@ if not exist "frontend\package.json" (
 )
 
 call ".venv\Scripts\activate.bat"
+set "EXIT_CODE=0"
 
 :: ── Inicia serviços em background (nesta janela, sem abrir novas) ────────────
-echo [5/5] Iniciando servicos...
+echo Iniciando servicos...
 
 :: Gera scripts auxiliares no %TEMP% (sem espacos no caminho = sem conflito de aspas)
 set BUSINESS_FILIAL=centro
@@ -93,20 +94,28 @@ echo   Pressione qualquer tecla para ENCERRAR todos os servicos.
 echo.
 
 
-echo [3/5] Atualizando KPIs do dashboard...
+echo Atualizando KPIs do dashboard...
 set BUSINESS_FILIAL=centro
 pushd backend
-python manage.py refresh_dashboard_kpis 2>nul
-python manage.py refresh_dashboard_kpis_compras 2>nul
-python manage.py refresh_dre_consolidada 2>nul
-python manage.py refresh_movimento_diario 2>nul
+python manage.py atualizar_dados
+if errorlevel 1 (
+    popd
+    echo Falha ao atualizar dados - Centro.
+    set "EXIT_CODE=1"
+    goto :encerrar_servicos
+)
 popd
+
+echo Atualizando KPIs do dashboard...
 set BUSINESS_FILIAL=henriques
 pushd backend
-python manage.py refresh_dashboard_kpis 2>nul
-python manage.py refresh_dashboard_kpis_compras 2>nul
-python manage.py refresh_dre_consolidada 2>nul
-python manage.py refresh_movimento_diario 2>nul
+python manage.py atualizar_dados
+if errorlevel 1 (
+    popd
+    echo Falha ao atualizar dados - Henriques.
+    set "EXIT_CODE=1"
+    goto :encerrar_servicos
+)
 popd
 
 :: ── Pasta de logs ─────────────────────────────────────────────────────────────
@@ -115,6 +124,7 @@ if not exist "logs" mkdir logs
 
 pause >nul
 
+:encerrar_servicos
 :: ── Encerra todos os serviços pelas portas ────────────────────────────────────
 echo Encerrando servicos...
 for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":8001 \|:8002 \|:4173 "') do (
@@ -124,5 +134,4 @@ del "%TEMP%\pd_centro.bat" 2>nul
 del "%TEMP%\pd_henriques.bat" 2>nul
 del "%TEMP%\pd_frontend.bat" 2>nul
 echo Servicos encerrados.
-endlocal
-
+endlocal & exit /b %EXIT_CODE%

@@ -37,9 +37,19 @@ const routes = [
           { path: "", redirect: "/analise/visao-geral" },
           {
             path: "visao-geral",
-            name: "analise-visao-geral",
-            component: () => import("@/pages/analise/DreView.vue"),
-            meta: { title: "Visão Geral" },
+            redirect: (to) => ({ path: "/analise/visao-geral/anual", query: to.query }),
+          },
+          {
+            path: "visao-geral/anual",
+            name: "analise-dre-anual",
+            component: () => import("@/pages/analise/DreAnualView.vue"),
+            meta: { title: "DRE Anual" },
+          },
+          {
+            path: "visao-geral/mensal",
+            name: "analise-dre-mensal",
+            component: () => import("@/pages/analise/DreMensalView.vue"),
+            meta: { title: "DRE Mensal" },
           },
           {
             path: "vendas",
@@ -66,6 +76,12 @@ const routes = [
             meta: { title: "Vendas por Categoria" },
           },
           {
+            path: "categorias/vendas/quarentena",
+            name: "analise-categorias-vendas-quarentena",
+            component: () => import("@/pages/analise/VendasQuarentenaView.vue"),
+            meta: { title: "Categorias em Quarentena" },
+          },
+          {
             path: "categorias/produtos/vendas",
             name: "analise-categorias-produtos-vendas",
             component: () => import("@/pages/analise/VendasProdutosView.vue"),
@@ -82,6 +98,18 @@ const routes = [
             name: "analise-categorias-produtos-compras",
             component: () => import("@/pages/analise/ComprasProdutosView.vue"),
             meta: { title: "Compras por Produto" },
+          },
+          {
+            path: "despesas",
+            name: "analise-despesas",
+            component: () => import("@/pages/Despesas/DespesasBIView.vue"),
+            meta: { title: "Despesas" },
+          },
+          {
+            path: "despesas/tipos",
+            name: "analise-despesas-tipos",
+            component: () => import("@/pages/Despesas/DespesasBITiposView.vue"),
+            meta: { title: "Despesas por Tipo" },
           },
         ],
       },
@@ -110,6 +138,9 @@ const routes = [
         name: "compras-itens",
         component: ItensCompra,
       },
+      { path: "despesas/tipos", component: () => import("@/pages/Despesas/DespesasTiposView.vue") },
+      { path: "despesas/movimentos", component: () => import("@/pages/Despesas/DespesasMovimentosView.vue") },
+      { path: "despesas/captura", component: () => import("@/pages/Despesas/DespesasCapturaView.vue") },
       {
         path: "cadastros/plano-contas",
         name: "cadastros-plano-contas",

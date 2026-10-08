@@ -9,6 +9,7 @@ from os import cpu_count
 from threading import Lock, Thread
 from time import perf_counter
 from typing import Any
+import logging
 import unicodedata
 from uuid import uuid4
 
@@ -32,6 +33,9 @@ from apps.integracao.hash_engine import percentual_semelhanca_textual
 from apps.validacao.services_legacy import contar_pendencias_validacao
 from apps.validacao.models import STG_AuditoriaPlanilha, STG_ItemVenda, STG_PagamentoVenda, STG_Venda, STG_VendaMotivoDivergencia
 from apps.vendas.models import ItemVenda, PagamentoVenda, Venda
+
+
+logger = logging.getLogger(__name__)
 
 
 HOST_VENDA_SHEET_NAME = "HostVenda"
@@ -2625,6 +2629,14 @@ def consolidar_stg_para_sot(*, forcar_divergencia_formato: bool = False) -> dict
                 resultado_analise_categorias["semanas_processadas"].append(semana.isoformat())
             except Exception:
                 resultado_analise_categorias["semanas_com_falha"].append(semana.isoformat())
+        from apps.analise.services_dre import reconstruir_dre_mes
+        for ano_periodo, mes_periodo in periodos_analise:
+            try:
+                reconstruir_dre_mes(ano_periodo, mes_periodo)
+            except Exception:
+                logger.exception(
+                    "Venda consolidada, mas o DRE falhou para %s/%02d.", ano_periodo, mes_periodo,
+                )
         resultado_analise_categorias["desatualizado"] = bool(
             resultado_analise_categorias["periodos_com_falha"] or resultado_analise_categorias["semanas_com_falha"]
         )

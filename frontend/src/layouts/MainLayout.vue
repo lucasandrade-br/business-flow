@@ -118,6 +118,10 @@
               <ClipboardList class="h-4 w-4 shrink-0" />
               <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Integração de Compras</span>
             </RouterLink>
+            <RouterLink to="/despesas/captura" :class="linkClass('/despesas/captura')" class="mt-1">
+              <CreditCard class="h-4 w-4 shrink-0" />
+              <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Integração de Despesas</span>
+            </RouterLink>
           </div>
         </section>
 
@@ -168,6 +172,19 @@
               <CreditCard class="h-4 w-4 shrink-0" />
               <span class="overflow-hidden whitespace-nowrap transition-all duration-200" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Pagamentos</span>
             </RouterLink>
+          </div>
+        </section>
+
+        <section>
+          <button v-if="isExpanded" type="button" class="flex w-full items-center justify-between rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-500 hover:bg-gray-100" @click="toggleSection('despesas')">
+            <span>Despesas</span>
+            <ChevronDown class="h-3.5 w-3.5 transition-transform duration-200" :class="sectionOpen.despesas ? 'rotate-0' : '-rotate-90'" />
+          </button>
+          <div class="mt-2 space-y-1 overflow-hidden transition-all duration-200" :class="sectionVisible('despesas') ? 'max-h-56 opacity-100' : 'max-h-0 opacity-0'">
+
+            <RouterLink to="/despesas/movimentos" :class="linkClass('/despesas/movimentos')"><Receipt class="h-4 w-4 shrink-0" /><span class="overflow-hidden whitespace-nowrap" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Despesas</span></RouterLink>
+            <RouterLink to="/despesas/tipos" :class="linkClass('/despesas/tipos')"><FolderTree class="h-4 w-4 shrink-0" /><span class="overflow-hidden whitespace-nowrap" :class="isExpanded ? 'max-w-[180px] opacity-100' : 'max-w-0 opacity-0'">Tipos e Categorias</span></RouterLink>
+
           </div>
         </section>
 
@@ -301,6 +318,7 @@ const sectionOpen = ref({
   cadastros: false,
   vendas: true,
   compras: true,
+  despesas: true,
   sistema: false,
 });
 
@@ -321,4 +339,3 @@ function linkClass(prefix) {
   ];
 }
 </script>
-
